@@ -6,7 +6,7 @@ These schemas are used for request/response validation and serialization.
 from datetime import datetime
 from typing import Any, Dict, List, Literal, Optional
 
-from pydantic import UUID4, BaseModel, Field
+from pydantic import UUID4, BaseModel, ConfigDict, Field
 
 
 class ChatMessage(BaseModel):
@@ -43,3 +43,83 @@ class AgentResponse(BaseModel):
     citations: List[Citation] = Field(default_factory=list)
     trace_id: Optional[str] = None
     usage: TokenUsage = Field(default_factory=TokenUsage)
+
+
+class OpenAIChatMessage(BaseModel):
+    """OpenAI chat message format."""
+
+    role: Literal["user", "assistant", "system"]
+    content: str
+
+
+class OpenAIChatRequest(BaseModel):
+    """OpenAI /v1/chat/completions request."""
+
+    model_config = ConfigDict(extra="ignore")
+
+    model: Optional[str] = None  # Optional: default to settings.LLM_MODEL
+    messages: List[OpenAIChatMessage]
+    stream: bool = False
+    temperature: float = 0.7
+    max_tokens: Optional[int] = None
+    top_p: float = 1.0
+
+
+class OpenAIChatChoice(BaseModel):
+    """A single choice in OpenAI chat response."""
+
+    index: int
+    message: OpenAIChatMessage
+    finish_reason: Optional[str] = None
+
+
+class OpenAIChatResponse(BaseModel):
+    """OpenAI /v1/chat/completions response."""
+
+    id: str
+    object: str = "chat.completion"
+    created: int
+    model: str
+    choices: List[OpenAIChatChoice]
+    usage: TokenUsage
+
+
+class OpenAIChatStreamDelta(BaseModel):
+    """Delta content for streaming response."""
+
+    role: Optional[Literal["assistant"]] = None
+    content: Optional[str] = None
+
+
+class OpenAIChatStreamChoice(BaseModel):
+    """A single choice in streaming response."""
+
+    index: int
+    delta: OpenAIChatStreamDelta
+    finish_reason: Optional[str] = None
+
+
+class OpenAIChatStreamChunk(BaseModel):
+    """A single chunk in streaming response."""
+
+    id: str
+    object: str = "chat.completion.chunk"
+    created: int
+    model: str
+    choices: List[OpenAIChatStreamChoice]
+
+
+class ModelInfo(BaseModel):
+    """Model information for /v1/models response."""
+
+    id: str
+    object: str = "model"
+    created: int
+    owned_by: str = "agentic-rag"
+
+
+class ModelsListResponse(BaseModel):
+    """Response for /v1/models endpoint."""
+
+    object: str = "list"
+    data: List[ModelInfo]

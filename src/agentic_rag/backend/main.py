@@ -13,8 +13,11 @@ from typing import AsyncGenerator
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
-from agentic_rag.shared import settings, setup_logging, setup_observability
+from agentic_rag.shared.config import settings
+from agentic_rag.shared.logging import setup_logging
+from agentic_rag.shared.observability import setup_observability
 from agentic_rag.shared.prompts import PromptRegistry
+from agentic_rag.backend.api.v1 import chat, health
 
 
 @asynccontextmanager
@@ -62,9 +65,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# TODO: Include routers (Phase 8)
-# app.include_router(health.router)
-# app.include_router(chat.router, prefix="/v1")
+# Include API routers
+app.include_router(health.router)
+app.include_router(chat.router)
 
 
 @app.get("/", tags=["root"])
