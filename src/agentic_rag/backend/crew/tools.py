@@ -6,8 +6,8 @@ using an AnyIO-first bridge with asyncio.run fallback.
 
 import asyncio
 
-from crewai_tools import BaseTool
-from pydantic import Field
+from crewai.tools import BaseTool
+from pydantic import Field, PrivateAttr
 import structlog
 
 from agentic_rag.backend.rag.retriever import HybridRetriever
@@ -54,8 +54,8 @@ class DatabaseSearchTool(BaseTool):
         "Input should be a specific, natural language query string."
     )
 
-    _retriever: HybridRetriever = Field(default_factory=HybridRetriever, exclude=True)
-    _reranker: LLMReranker = Field(default_factory=LLMReranker, exclude=True)
+    _retriever: HybridRetriever = PrivateAttr(default_factory=HybridRetriever)
+    _reranker: LLMReranker = PrivateAttr(default_factory=LLMReranker)
 
     def _run(self, query: str) -> str:
         try:
