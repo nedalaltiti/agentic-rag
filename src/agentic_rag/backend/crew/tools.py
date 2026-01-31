@@ -36,7 +36,7 @@ def run_async_safely(async_fn):
 
         try:
             return anyio.from_thread.run(async_fn)
-        except Exception:
+        except (RuntimeError, LookupError):
             return asyncio.run(async_fn())
     except ImportError:
         return asyncio.run(async_fn())
@@ -72,7 +72,7 @@ class DatabaseSearchTool(BaseTool):
                 return "No relevant documents found."
 
             result_text = ""
-            for i, cit in enumerate(citations):
+            for i, cit in enumerate(citations[:8]):
                 snippet = cit.chunk_text[:1000] + (
                     "..." if len(cit.chunk_text) > 1000 else ""
                 )
@@ -80,10 +80,15 @@ class DatabaseSearchTool(BaseTool):
                     f"Page {cit.page_number}" if cit.page_number is not None else "Page ?"
                 )
 
+                section_str = (
+                    f"Section: {cit.section_path}\n" if cit.section_path else ""
+                )
+
                 result_text += (
                     f"--- Source {i + 1} ---\n"
                     f"ID: {cit.document_id}\n"
                     f"File: {cit.file_name} ({page_str})\n"
+                    f"{section_str}"
                     f"Content: {snippet}\n\n"
                 )
             return result_text

@@ -12,7 +12,7 @@ from rich.progress import Progress, SpinnerColumn, TextColumn
 from sqlalchemy import select
 
 from agentic_rag.indexer.chunking import ContextualChunker
-from agentic_rag.indexer.parser import DocumentParser
+from agentic_rag.indexer.parser import SUPPORTED_EXTENSIONS, DocumentParser
 from agentic_rag.shared.database import AsyncSessionLocal
 from agentic_rag.shared.models import Chunk, Document
 from agentic_rag.shared.observability import setup_observability
@@ -36,20 +36,24 @@ class IngestionPipeline:
                 sha256_hash.update(byte_block)
         return sha256_hash.hexdigest()
 
-    async def run(self, source_dir: Path, mode: str = "llm"):
+    async def run(self, source_dir: Path, mode: str = "fast"):
         """
-        Run the ingestion pipeline on all PDFs in source_dir.
+        Run the ingestion pipeline on all supported documents in source_dir.
 
         Args:
-            source_dir: Directory containing PDF files
-            mode: Chunking mode ('llm' or 'fast')
+            source_dir: Directory containing documents (PDF, DOCX, DOC, MD)
+            mode: Chunking mode ('fast' or 'llm')
         """
-        files = list(source_dir.glob("*.pdf"))
+        files = sorted(
+            [f for f in source_dir.iterdir()
+             if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS],
+            key=lambda p: p.name.lower(),
+        )
         if not files:
-            logger.warning("No PDF files found", source=str(source_dir))
+            logger.warning("No supported files found", source=str(source_dir))
             return
 
-        print(f"Found {len(files)} PDFs. Starting pipeline (Mode: {mode})...")
+        print(f"Found {len(files)} documents. Starting pipeline (Mode: {mode})...")
 
         with Progress(
             SpinnerColumn(),

@@ -5,7 +5,7 @@ Auto-instruments LlamaIndex, FastAPI, and CrewAI (if available).
 """
 
 import structlog
-from openinference.instrumentation.fastapi import FastAPIInstrumentor
+from opentelemetry.instrumentation.fastapi import FastAPIInstrumentor
 from openinference.instrumentation.llama_index import LlamaIndexInstrumentor
 from opentelemetry import trace
 from opentelemetry.exporter.otlp.proto.http.trace_exporter import OTLPSpanExporter

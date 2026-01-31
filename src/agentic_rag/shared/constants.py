@@ -23,7 +23,7 @@ CONTEXT_PREFIX = "context_prefix"
 # Vector Store Constants
 # =============================================================================
 
-EMBEDDING_DIMENSION = 768  # nomic-embed-text dimension
+EMBEDDING_DIMENSION = 1024  # qwen3-embedding dimension
 COLLECTION_NAME = "documents"
 
 # =============================================================================

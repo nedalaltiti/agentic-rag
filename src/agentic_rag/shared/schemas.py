@@ -23,6 +23,7 @@ class Citation(BaseModel):
     chunk_id: UUID4
     file_name: str
     page_number: Optional[int] = None
+    section_path: Optional[str] = None
     chunk_text: str
     score: float
 
@@ -39,6 +40,6 @@ class AgentResponse(BaseModel):
     """Response from the agentic RAG pipeline."""
 
     answer: str
-    citations: List[Citation] = []
+    citations: List[Citation] = Field(default_factory=list)
     trace_id: Optional[str] = None
     usage: TokenUsage = Field(default_factory=TokenUsage)

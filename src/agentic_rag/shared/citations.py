@@ -43,14 +43,16 @@ def format_citations(nodes: List[NodeWithScore]) -> List[Citation]:
         # 3. Metadata
         file_name = meta.get("file_name", "Unknown Source")
         page_num = meta.get("page_number")
+        section_path = meta.get("section_path")
 
         citation = Citation(
             document_id=doc_id,
             chunk_id=chunk_id,
             file_name=file_name,
             page_number=int(page_num) if page_num is not None else None,
+            section_path=section_path or None,
             chunk_text=node.get_content().strip(),
-            score=node_score.score or 0.0,
+            score=float(node_score.score or 0.0),
         )
         citations.append(citation)
 

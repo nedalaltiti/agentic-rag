@@ -15,7 +15,7 @@ ON documents(file_hash)
 WHERE file_hash IS NOT NULL;
 
 -- 2. Chunks: The core RAG storage
--- embedding is vector(768) to match 'nomic-embed-text'
+-- embedding is vector(1024) to match 'qwen3-embedding'
 CREATE TABLE IF NOT EXISTS chunks (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
@@ -35,9 +35,8 @@ CREATE TABLE IF NOT EXISTS chunks (
       to_tsvector('simple', coalesce(content, ''))
     ) STORED,
     
-    -- Vector Embedding (768 dimensions)
-    -- Strict Mode: Must be present for indexing to succeed
-    embedding vector(768) NOT NULL,
+    -- Vector Embedding (1024 dimensions for qwen3-embedding)
+    embedding vector(1024) NOT NULL,
     
     chunk_index INT NOT NULL,
     created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()

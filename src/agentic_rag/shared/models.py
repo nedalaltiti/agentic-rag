@@ -12,6 +12,7 @@ from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func, text
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
+from .constants import EMBEDDING_DIMENSION
 from .database import Base
 
 
@@ -62,8 +63,7 @@ class Chunk(Base):
         "metadata", JSONB, server_default=text("'{}'::jsonb"), nullable=False
     )
 
-    # Embedding: 768 dim for nomic-embed-text
-    embedding: Mapped[Any] = mapped_column(Vector(768), nullable=False)
+    embedding: Mapped[Any] = mapped_column(Vector(EMBEDDING_DIMENSION), nullable=False)
 
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

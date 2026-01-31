@@ -9,11 +9,12 @@ from typing import Dict, List
 
 from sqlalchemy import Integer, bindparam, text
 from pgvector.sqlalchemy import Vector
-from llama_index.core import BaseRetriever
-from llama_index.core.schema import NodeWithScore, TextNode
+from llama_index.core.retrievers import BaseRetriever
+from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 import structlog
 
 from agentic_rag.shared.config import settings
+from agentic_rag.shared.constants import EMBEDDING_DIMENSION
 from agentic_rag.shared.database import AsyncSessionLocal
 from agentic_rag.shared.llm_factory import get_embedding_model
 
@@ -28,20 +29,32 @@ class HybridRetriever(BaseRetriever):
     WEIGHT_VECTOR = 1.0
     WEIGHT_KEYWORD = 1.0
 
-    def __init__(self):
+    # Filter out TOC and front-matter chunks by default
+    _FILTER_TOC_FM = """
+        AND COALESCE((metadata->>'is_toc')::boolean, false) = false
+        AND COALESCE((metadata->>'is_front_matter')::boolean, false) = false
+    """
+
+    def __init__(self, include_toc: bool = False):
         super().__init__()
         self.embed_model = get_embedding_model()
         self.top_k = settings.TOP_K_RETRIEVAL
+        self.include_toc = include_toc
 
     def _retrieve(self, query_bundle) -> List[NodeWithScore]:
         """Synchronous wrapper (Not supported in async FastAPI)."""
         raise NotImplementedError("Use 'aretrieve' for async execution in FastAPI.")
 
-    async def _aretrieve(self, query: str) -> List[NodeWithScore]:
+    async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+        query = query_bundle.query_str
         logger.info("Starting Hybrid Search", query=query)
 
-        # 1. Generate Query Embedding
-        query_embedding = await self.embed_model.aget_query_embedding(query)
+        # 1. Generate Query Embedding (instruction-prefixed for Qwen3)
+        instruct_query = (
+            "Instruct: Given a search query, retrieve relevant passages that answer the query.\n"
+            f"Query: {query}"
+        )
+        query_embedding = await self.embed_model.aget_query_embedding(instruct_query)
 
         # 2. Execute Parallel Searches
         async with AsyncSessionLocal() as s1, AsyncSessionLocal() as s2:
@@ -102,13 +115,16 @@ class HybridRetriever(BaseRetriever):
 
     async def _vector_search(self, session, embedding: List[float]):
         """Semantic search with type-safe bindings."""
-        stmt = text("""
+        # Safe: filter_clause is always "" or the _FILTER_TOC_FM class constant
+        filter_clause = "" if self.include_toc else self._FILTER_TOC_FM
+        stmt = text(f"""
             SELECT id, document_id, content, metadata
             FROM chunks
+            WHERE 1=1 {filter_clause}
             ORDER BY embedding <=> :embed
             LIMIT :limit
         """).bindparams(
-            bindparam("embed", type_=Vector(768)),
+            bindparam("embed", type_=Vector(EMBEDDING_DIMENSION)),
             bindparam("limit", type_=Integer),
         )
 
@@ -119,13 +135,19 @@ class HybridRetriever(BaseRetriever):
 
     async def _keyword_search(self, session, query: str):
         """Lexical search with type-safe bindings."""
-        stmt = text("""
+        # Safe: filter_clause is always "" or the _FILTER_TOC_FM class constant
+        filter_clause = "" if self.include_toc else self._FILTER_TOC_FM
+        stmt = text(f"""
             SELECT id, document_id, content, metadata
             FROM chunks
             WHERE content_tsv @@ websearch_to_tsquery('simple', :query)
+            {filter_clause}
             ORDER BY ts_rank(content_tsv, websearch_to_tsquery('simple', :query)) DESC
             LIMIT :limit
-        """).bindparams(bindparam("limit", type_=Integer))
+        """).bindparams(
+            bindparam("query"),
+            bindparam("limit", type_=Integer),
+        )
 
         result = await session.execute(
             stmt, {"query": query, "limit": self.top_k * 2}

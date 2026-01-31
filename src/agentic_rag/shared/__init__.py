@@ -39,6 +39,7 @@ from .llm_factory import configure_global_settings, get_embedding_model, get_llm
 from .logging import setup_logging
 from .models import Chunk, Conversation, Document
 from .observability import setup_observability
+from .prompts import PromptRegistry
 from .schemas import AgentResponse, ChatMessage, Citation, TokenUsage
 
 __all__ = [
@@ -87,6 +88,8 @@ __all__ = [
     "setup_logging",
     # Observability
     "setup_observability",
+    # Prompts
+    "PromptRegistry",
     # LLM
     "get_llm",
     "get_embedding_model",

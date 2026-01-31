@@ -33,12 +33,19 @@ class Settings(BaseSettings):
 
     # Observability (Arize Phoenix)
     PHOENIX_COLLECTOR_ENDPOINT: str = "http://phoenix:6006/v1/traces"
+    # Phoenix REST API base URL (prompt management)
+    PHOENIX_API_URL: str = "http://phoenix:6006"
     PHOENIX_PROJECT_NAME: str = "agentic-rag-v1"
+
+    # Prompt management controls
+    PHOENIX_PROMPT_SYNC: bool = True  # disable during hot reload if you want
+    # If set, registry will prefer this tag in prod (e.g., "production" or "v1.0.0")
+    PHOENIX_PROMPT_TAG: str = Field(default_factory=lambda: "production" if Settings().ENVIRONMENT == "prod" else "development")
 
     # LLM & Embedding (Ollama)
     OLLAMA_BASE_URL: str = "http://ollama:11434"
-    LLM_MODEL: str = "llama3.2:3b"
-    EMBEDDING_MODEL: str = "nomic-embed-text"
+    LLM_MODEL: str = "qwen3:1.7b"
+    EMBEDDING_MODEL: str = "qwen3-embedding:0.6b"
 
     # Contextual RAG Settings
     CHUNK_SIZE: int = 512

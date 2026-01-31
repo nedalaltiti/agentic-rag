@@ -12,3 +12,4 @@ data/pg_data/*
 !data/pg_data/.gitkeep
 docs/architecture.png
 terminals/
+.DS_Store

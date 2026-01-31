@@ -1,6 +1,6 @@
 """CLI for document indexing using Typer.
 
-Provides the 'agentic-index' command for ingesting PDFs.
+Provides the 'agentic-index' command for ingesting documents (PDF, DOCX, DOC, MD).
 """
 
 import asyncio
@@ -18,11 +18,11 @@ console = Console()
 
 @app.command()
 def ingest(
-    source: Path = typer.Option(..., help="Path to directory containing PDFs"),
-    mode: str = typer.Option("llm", help="Chunking mode: 'llm' or 'fast'", case_sensitive=False),
+    source: Path = typer.Option(..., help="Path to directory containing documents (PDF, DOCX, DOC, MD)"),
+    mode: str = typer.Option("fast", help="Chunking mode: 'fast' or 'llm'", case_sensitive=False),
 ):
     """
-    Ingest PDFs using Contextual Chunking.
+    Ingest documents (PDF, DOCX, DOC, MD) using Contextual Chunking.
 
     Mode:
         - llm: LLM-generated context (slow, high quality)

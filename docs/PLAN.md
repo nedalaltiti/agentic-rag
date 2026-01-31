@@ -238,6 +238,8 @@ conversations (
 
 **Context Window**: Last 10 messages included in prompt
 
+**Index**: On `(session_id, created_at)` (already in migrations).
+
 ---
 
 ### 8. Phoenix Integration
@@ -374,9 +376,11 @@ postgres:
     - ./migrations:/docker-entrypoint-initdb.d:ro
 ```
 
-PostgreSQL automatically runs `.sql` files in `/docker-entrypoint-initdb.d/` 
-in alphabetical order on first container start. This is the simplest and most 
+PostgreSQL automatically runs `.sql` files in `/docker-entrypoint-initdb.d/`
+in alphabetical order on first container start. This is the simplest and most
 robust approach for an assessment.
+
+Use `scripts/reset_db.sh` (`down -v`) to force migrations to rerun.
 
 **One command to apply** (fresh setup):
 ```bash
@@ -446,6 +450,8 @@ docker compose up -d postgres
 ---
 
 ### Phase 7: Phoenix Prompts
+> **Note**: Tracing is in Phase 1, prompts are Phase 7 (separate concerns).
+
 **Files**: `shared/prompts.py`, `config/prompts/`
 
 **Tasks**:

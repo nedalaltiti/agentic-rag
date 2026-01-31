@@ -1,76 +1,83 @@
-"""LLM-based re-ranking of retrieved candidates.
+"""LLM-based re-ranking for retrieved chunks.
 
-Scores each candidate passage against the query using the LLM,
-with concurrency-limited parallel evaluation and adaptive candidate counts.
+Uses Ollama LLM to score relevance of candidates and re-rank them.
 """
 
 import asyncio
 import re
 from typing import List
 
-from llama_index.core.schema import NodeWithScore
 import structlog
+from llama_index.core.schema import NodeWithScore
 
 from agentic_rag.shared.config import settings
 from agentic_rag.shared.llm_factory import get_llm
+from agentic_rag.shared.prompts import PromptRegistry
 
 logger = structlog.get_logger()
 
 
 class LLMReranker:
-    """Re-ranks retrieved nodes by LLM-scored relevance (0-10)."""
+    """LLM-based re-ranker using prompt templates from Phoenix."""
 
     def __init__(self):
         self.llm = get_llm()
         self.top_n = settings.TOP_K_RERANK
-        # Semaphore limits concurrency to prevent LLM overload
         self._semaphore = asyncio.Semaphore(5)
 
-    async def rerank(
-        self, query: str, nodes: List[NodeWithScore]
-    ) -> List[NodeWithScore]:
-        """Score and re-rank nodes, returning the top_n most relevant."""
+    async def rerank(self, query: str, nodes: List[NodeWithScore]) -> List[NodeWithScore]:
+        """
+        Re-rank nodes by LLM-scored relevance.
+
+        Args:
+            query: User query
+            nodes: List of retrieved nodes with scores
+
+        Returns:
+            Top-k re-ranked nodes
+        """
         if not nodes:
             return []
 
-        # Ensure we look at at least 20, or 4x the requested output
-        candidate_count = max(self.top_n * 4, 20)
-        candidates = nodes[:candidate_count]
-
+        # Take more candidates than we need for better selection
+        candidates = nodes[: max(self.top_n * 4, 20)]
         logger.info("Re-ranking candidates", count=len(candidates))
 
-        tasks = [self._score_node(query, node) for node in candidates]
+        tasks = [self._score_node(query, n) for n in candidates]
         scored_nodes = await asyncio.gather(*tasks)
 
+        # Sort by re-ranked score descending
         scored_nodes.sort(key=lambda x: x.score or 0.0, reverse=True)
-
         return scored_nodes[: self.top_n]
 
     async def _score_node(self, query: str, node: NodeWithScore) -> NodeWithScore:
-        content_snippet = node.node.get_content()[:500]
+        """Score a single node using LLM."""
+        passage = node.node.get_content()[:500]
 
-        prompt = (
-            f"Query: {query}\n"
-            f"Passage: {content_snippet}...\n\n"
-            "Rate the relevance of this passage to the query on a scale of 0.0 to 10.0. "
-            "0 means completely irrelevant, 10 means perfect answer. "
-            "Return ONLY the number."
-        )
+        # In prod, could fetch template from Phoenix
+        if settings.ENVIRONMENT == "prod":
+            template = PromptRegistry.get_template("reranker_template")
+            prompt = template.replace("{{ query }}", query).replace("{{ passage }}", passage)
+        else:
+            # Dev: always render locally
+            prompt = PromptRegistry.render("reranker_template", query=query, passage=passage)
 
         async with self._semaphore:
             try:
                 response = await self.llm.acomplete(prompt)
-                score_text = response.text.strip()
-
-                match = re.search(r"\b([0-9]?\.[0-9]+|[0-9]+)\b", score_text)
+                score_text = (response.text or "").strip()
+                
+                # Extract number from response
+                match = re.search(r"\b(10|[0-9](?:\.[0-9]+)?)\b", score_text)
                 if match:
                     raw_score = float(match.group(1))
+                    # Normalize to 0-1 range
                     node.score = min(max(raw_score, 0.0), 10.0) / 10.0
                 else:
-                    node.score = 0.5  # Neutral fallback
-
+                    node.score = 0.5
             except Exception as e:
-                logger.warning("Reranking failed for node", error=str(e))
-                pass  # Keep original score
+                logger.warning("Re-ranking failed for node", error=str(e))
+                # Keep original score on failure
+                pass
 
         return node
