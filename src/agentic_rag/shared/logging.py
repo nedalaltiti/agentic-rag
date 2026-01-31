@@ -1,0 +1,1 @@
+# Centralized JSON logging setup

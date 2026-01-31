@@ -1,0 +1,1 @@
+# Document Indexer Service Dockerfile
