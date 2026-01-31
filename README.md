@@ -31,6 +31,15 @@ docker compose up -d
 curl http://localhost:8000/health
 ```
 
+> **Local Development (outside Docker):** The `.env.example` uses Docker service names 
+> (`postgres`, `ollama`, `phoenix`). If running locally without Docker, update these to 
+> `localhost` in your `.env` file:
+> ```
+> DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/ragdb
+> OLLAMA_BASE_URL=http://localhost:11434
+> PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006/v1/traces
+> ```
+
 ### Index documents
 
 Put PDFs in `data/raw/` then:
