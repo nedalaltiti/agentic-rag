@@ -3,22 +3,23 @@
 Defines researcher and writer agents with prompts from Phoenix.
 """
 
-from crewai import Agent
-from langchain_openai import ChatOpenAI
+from crewai import Agent, LLM
 
 from agentic_rag.shared.config import settings
 from agentic_rag.shared.prompts import PromptRegistry
 
 from .tools import DatabaseSearchTool, MemoryLookupTool
 
-# LLM configuration for CrewAI agents
-# Uses Ollama via OpenAI-compatible endpoint
-llm = ChatOpenAI(
-    model=settings.LLM_MODEL,
-    base_url=f"{settings.OLLAMA_BASE_URL}/v1",
-    api_key="NA",  # Ollama doesn't require API key
-    temperature=0.1,
-)
+
+def _get_llm() -> LLM:
+    """
+    Lazy LLM initialization to avoid import-time errors.
+    """
+    return LLM(
+        model=f"ollama/{settings.LLM_MODEL}",
+        base_url=settings.OLLAMA_BASE_URL,
+        temperature=0.1,
+    )
 
 
 def create_researcher_agent(session_id: str) -> Agent:
@@ -33,6 +34,7 @@ def create_researcher_agent(session_id: str) -> Agent:
     Returns:
         Configured Agent instance
     """
+    llm = _get_llm()
     return Agent(
         role="Senior Research Analyst",
         goal="Analyze requests and retrieve precise information from the knowledge base.",
@@ -53,6 +55,7 @@ def create_writer_agent() -> Agent:
     Returns:
         Configured Agent instance
     """
+    llm = _get_llm()
     return Agent(
         role="Technical Content Synthesizer",
         goal="Synthesize retrieved info into clear, accurate answers with citations.",

@@ -20,7 +20,7 @@ from agentic_rag.shared.config import settings
 
 logger = structlog.get_logger()
 
-PROMPTS_DIR = Path(__file__).resolve().parent.parent / "config" / "prompts"
+PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 
 class PromptRegistry:

@@ -38,9 +38,8 @@ class Settings(BaseSettings):
     PHOENIX_PROJECT_NAME: str = "agentic-rag-v1"
 
     # Prompt management controls
-    PHOENIX_PROMPT_SYNC: bool = True  # disable during hot reload if you want
-    # If set, registry will prefer this tag in prod (e.g., "production" or "v1.0.0")
-    PHOENIX_PROMPT_TAG: str = Field(default_factory=lambda: "production" if Settings().ENVIRONMENT == "prod" else "development")
+    PHOENIX_PROMPT_SYNC: bool = False  # Set true in production
+    PHOENIX_PROMPT_TAG: str = "development"  # Use "production" in prod
 
     # LLM & Embedding (Ollama)
     OLLAMA_BASE_URL: str = "http://ollama:11434"

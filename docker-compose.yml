@@ -1,12 +1,89 @@
-# Docker Compose orchestration
+# Docker Compose for Agentic RAG Stack
+# 
+# Services:
+#   - postgres: PostgreSQL with pgvector for vector storage
+#   - phoenix: Arize Phoenix for observability and prompt management
+#   - openwebui: Chat interface connected to backend
+#   - ollama: (optional) LLM hosting - recommend running natively for GPU
+#
+# Usage:
+#   Full stack (CPU):     docker-compose up -d
+#   Without Ollama (GPU): docker-compose up -d postgres phoenix openwebui
+
 services:
+  # PostgreSQL with pgvector extension
+  postgres:
+    image: pgvector/pgvector:pg16
+    container_name: agentic-rag-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: ragdb
+    ports:
+      - "5433:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./migrations:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d ragdb"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    restart: unless-stopped
+
+  # Arize Phoenix for observability
+  phoenix:
+    image: arizephoenix/phoenix:latest
+    container_name: agentic-rag-phoenix
+    ports:
+      - "6006:6006"
+    environment:
+      - PHOENIX_WORKING_DIR=/data
+    volumes:
+      - phoenix_data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:6006/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+    restart: unless-stopped
+
+  # OpenWebUI - Chat Interface
+  openwebui:
+    image: ghcr.io/open-webui/open-webui:main
+    container_name: agentic-rag-openwebui
+    ports:
+      - "3000:8080"
+    environment:
+      # Connect to our backend API (running on host)
+      - OPENAI_API_BASE_URL=http://host.docker.internal:8000/v1
+      - OPENAI_API_KEY=not-needed
+      - WEBUI_AUTH=false
+      - ENABLE_SIGNUP=false
+      # Disable built-in Ollama (we use our backend)
+      - ENABLE_OLLAMA_API=false
+    volumes:
+      - openwebui_data:/app/backend/data
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    depends_on:
+      - postgres
+    restart: unless-stopped
+
+  # Ollama - Optional (recommend running natively for GPU on macOS)
   ollama:
     image: ollama/ollama:latest
+    container_name: agentic-rag-ollama
     ports:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
+    profiles:
+      - full  # Only starts with: docker-compose --profile full up
     restart: unless-stopped
 
 volumes:
+  postgres_data:
+  phoenix_data:
+  openwebui_data:
   ollama_data:

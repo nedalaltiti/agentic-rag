@@ -63,8 +63,8 @@ class DatabaseSearchTool(BaseTool):
 
             async def _execute():
                 nodes = await self._retriever.aretrieve(query)
-                reranked = await self._reranker.rerank(query, nodes)
-                return format_citations(reranked)
+                # reranked = await self._reranker.rerank(query, nodes)
+                return format_citations(nodes[:5])
 
             citations = run_async_safely(_execute)
 
