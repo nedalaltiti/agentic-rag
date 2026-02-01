@@ -12,14 +12,15 @@ import asyncio
 import hashlib
 import time
 import uuid
-from typing import AsyncGenerator, List, Optional
+from collections.abc import AsyncGenerator
+from typing import Literal
 
-from fastapi import APIRouter, Header, HTTPException, Request
-from fastapi.responses import StreamingResponse
 import structlog
+from fastapi import APIRouter, Header, HTTPException
+from fastapi.responses import StreamingResponse
 
-from agentic_rag.backend.rag.retriever import HybridRetriever
 from agentic_rag.backend.rag.reranker import LLMReranker
+from agentic_rag.backend.rag.retriever import HybridRetriever
 from agentic_rag.shared.citations import format_citations
 from agentic_rag.shared.config import settings
 from agentic_rag.shared.llm_factory import get_llm
@@ -31,8 +32,8 @@ from agentic_rag.shared.schemas import (
     OpenAIChatMessage,
     OpenAIChatRequest,
     OpenAIChatResponse,
-    OpenAIChatStreamChunk,
     OpenAIChatStreamChoice,
+    OpenAIChatStreamChunk,
     OpenAIChatStreamDelta,
     TokenUsage,
 )
@@ -51,7 +52,7 @@ AGENT_MODE_KEYWORDS = {
 
 def _get_session_id(
     messages: list,
-    session_header: Optional[str] = None,
+    session_header: str | None = None,
 ) -> str:
     """
     Get session ID from header or generate from first user message.
@@ -72,7 +73,7 @@ def _get_session_id(
     return str(uuid.uuid4())[:16]
 
 
-def _should_use_agent_mode(query: str, agent_header: Optional[str]) -> bool:
+def _should_use_agent_mode(query: str, agent_header: str | None) -> bool:
     """
     Determine if agent mode should be used.
     
@@ -122,10 +123,13 @@ Keep responses to 1-2 sentences max. Be warm but professional. No emojis."""
     
     try:
         response = await llm.acomplete(prompt)
-        return response.text.strip()
+        return str(response.text).strip()
     except Exception:
         # Fallback if LLM fails
-        return "I'm here to help with PDPL compliance matters. What would you like to know about data protection?"
+        return (
+            "I'm here to help with PDPL compliance matters. "
+            "What would you like to know about data protection?"
+        )
 
 
 def _is_openwebui_internal_request(query: str) -> tuple[bool, str]:
@@ -144,7 +148,11 @@ def _is_openwebui_internal_request(query: str) -> tuple[bool, str]:
     
     # Follow-up suggestions request
     if "### task:" in query_lower and "follow-up questions" in query_lower:
-        return True, '{"questions": ["What are the key principles of PDPL?", "How does PDPL affect data processing?", "What are PDPL compliance requirements?"]}'
+        return True, (
+            '{"questions": ["What are the key principles of PDPL?", '
+            '"How does PDPL affect data processing?", '
+            '"What are PDPL compliance requirements?"]}'
+        )
     
     # Tags/classification requests
     if "### task:" in query_lower and ("tags" in query_lower or "classify" in query_lower):
@@ -157,7 +165,7 @@ def _is_openwebui_internal_request(query: str) -> tuple[bool, str]:
     return False, ""
 
 
-def _format_context_for_llm(citations: List[Citation]) -> str:
+def _format_context_for_llm(citations: list[Citation]) -> str:
     """Format citations as context for the LLM prompt."""
     if not citations:
         return "No relevant documents found in the knowledge base."
@@ -187,7 +195,7 @@ def _format_context_for_llm(citations: List[Citation]) -> str:
 async def _retrieve_and_rerank(
     query: str,
     use_reranker: bool = False,
-) -> List[Citation]:
+) -> list[Citation]:
     """
     Retrieve documents and optionally rerank.
     
@@ -227,7 +235,7 @@ async def _retrieve_and_rerank(
         return []
 
 
-def _format_sources_section(citations: List[Citation]) -> str:
+def _format_sources_section(citations: list[Citation]) -> str:
     """Format citations as a visible Sources section for the answer."""
     if not citations:
         return ""
@@ -260,7 +268,7 @@ def _format_sources_section(citations: List[Citation]) -> str:
 
 async def _fast_rag_response(
     query: str,
-    citations: List[Citation],
+    citations: list[Citation],
 ) -> str:
     """
     Generate response using single LLM call (Fast RAG).
@@ -279,7 +287,7 @@ async def _fast_rag_response(
     # Single LLM call
     llm = get_llm()
     response = await llm.acomplete(prompt)
-    answer = response.text.strip()
+    answer = str(response.text).strip()
     
     # Append visible sources section for OpenWebUI (OpenAI-compatible)
     answer += _format_sources_section(citations)
@@ -290,7 +298,7 @@ async def _fast_rag_response(
 async def _agent_mode_response(
     query: str,
     session_id: str,
-    citations: List[Citation],
+    citations: list[Citation],
 ) -> str:
     """
     Generate response using CrewAI Agent Mode.
@@ -318,7 +326,7 @@ async def _process_query(
     query: str,
     session_id: str,
     use_agent_mode: bool = False,
-) -> tuple[str, List[Citation]]:
+) -> tuple[str, list[Citation]]:
     """
     Process query with Fast RAG (default) or Agent Mode.
     
@@ -356,7 +364,7 @@ async def _process_query(
             answer = await _fast_rag_response(query, citations)
     except Exception:
         logger.exception("Response generation failed", session_id=session_id)
-        raise HTTPException(status_code=500, detail="Failed to generate response")
+        raise HTTPException(status_code=500, detail="Failed to generate response") from None
     
     # Save assistant response
     await memory.add_message("assistant", answer)
@@ -381,7 +389,11 @@ async def _stream_with_thinking(
     3. Clear thinking and stream actual answer
     """
     # Helper to create chunk
-    def make_chunk(content: str, role: str = None, finish: str = None):
+    def make_chunk(
+        content: str,
+        role: Literal["assistant"] | None = None,
+        finish: str | None = None,
+    ):
         return OpenAIChatStreamChunk(
             id=request_id,
             created=created_at,
@@ -405,7 +417,7 @@ async def _stream_with_thinking(
     # Note: We don't add a thinking emoji as it would stay in the response
     try:
         answer, citations = await _process_query(query, session_id, use_agent_mode)
-    except Exception as e:
+    except Exception:
         error_msg = "Sorry, I encountered an error. Please try again."
         yield f"data: {make_chunk(error_msg).model_dump_json()}\n\n"
         yield f"data: {make_chunk('', finish='stop').model_dump_json()}\n\n"
@@ -430,8 +442,8 @@ async def _stream_with_thinking(
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: OpenAIChatRequest,
-    x_session_id: Optional[str] = Header(None, alias="X-Session-Id"),
-    x_agent_mode: Optional[str] = Header(None, alias="X-Agent-Mode"),
+    x_session_id: str | None = Header(None, alias="X-Session-Id"),
+    x_agent_mode: str | None = Header(None, alias="X-Agent-Mode"),
 ):
     """
     OpenAI-compatible chat completions endpoint.
@@ -487,7 +499,7 @@ async def chat_completions(
         raise
     except Exception:
         logger.exception("Query processing failed", session_id=session_id)
-        raise HTTPException(status_code=500, detail="Query processing failed")
+        raise HTTPException(status_code=500, detail="Query processing failed") from None
     
     # Non-streaming response
     return OpenAIChatResponse(

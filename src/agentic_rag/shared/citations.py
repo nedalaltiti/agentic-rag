@@ -5,17 +5,16 @@ with strict UUID enforcement for document and chunk identifiers.
 """
 
 import uuid
-from typing import List
 
-from llama_index.core.schema import NodeWithScore
 import structlog
+from llama_index.core.schema import NodeWithScore
 
 from agentic_rag.shared.schemas import Citation
 
 logger = structlog.get_logger()
 
 
-def format_citations(nodes: List[NodeWithScore]) -> List[Citation]:
+def format_citations(nodes: list[NodeWithScore]) -> list[Citation]:
     """Convert retrieved nodes into Citation objects, skipping invalid entries."""
     citations = []
 

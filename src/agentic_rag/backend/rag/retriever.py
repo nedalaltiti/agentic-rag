@@ -5,13 +5,12 @@ fused via Reciprocal Rank Fusion (RRF) with type-safe SQL bindings.
 """
 
 import asyncio
-from typing import Dict, List
 
-from sqlalchemy import Integer, bindparam, text
-from pgvector.sqlalchemy import Vector
+import structlog
 from llama_index.core.retrievers import BaseRetriever
 from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
-import structlog
+from pgvector.sqlalchemy import Vector
+from sqlalchemy import Integer, bindparam, text
 
 from agentic_rag.shared.config import settings
 from agentic_rag.shared.constants import EMBEDDING_DIMENSION
@@ -41,11 +40,11 @@ class HybridRetriever(BaseRetriever):
         self.top_k = settings.TOP_K_RETRIEVAL
         self.include_toc = include_toc
 
-    def _retrieve(self, query_bundle) -> List[NodeWithScore]:
+    def _retrieve(self, query_bundle) -> list[NodeWithScore]:
         """Synchronous wrapper (Not supported in async FastAPI)."""
         raise NotImplementedError("Use 'aretrieve' for async execution in FastAPI.")
 
-    async def _aretrieve(self, query_bundle: QueryBundle) -> List[NodeWithScore]:
+    async def _aretrieve(self, query_bundle: QueryBundle) -> list[NodeWithScore]:
         query = query_bundle.query_str
         logger.info("Starting Hybrid Search", query=query)
 
@@ -65,8 +64,8 @@ class HybridRetriever(BaseRetriever):
             vector_rows, keyword_rows = results
 
         # 3. Reciprocal Rank Fusion (RRF)
-        fused_scores: Dict[str, float] = {}
-        node_map: Dict[str, dict] = {}
+        fused_scores: dict[str, float] = {}
+        node_map: dict[str, dict] = {}
 
         def process_rows(rows, weight=1.0):
             for rank, row in enumerate(rows):
@@ -113,7 +112,7 @@ class HybridRetriever(BaseRetriever):
 
         return nodes
 
-    async def _vector_search(self, session, embedding: List[float]):
+    async def _vector_search(self, session, embedding: list[float]):
         """Semantic search with type-safe bindings."""
         # Safe: filter_clause is always "" or the _FILTER_TOC_FM class constant
         filter_clause = "" if self.include_toc else self._FILTER_TOC_FM

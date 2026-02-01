@@ -19,7 +19,7 @@ def setup_logging() -> None:
     Includes robust idempotency guard using handler names to prevent
     duplicate logs on reload without breaking other handlers (e.g., pytest).
     """
-    shared_processors = [
+    shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
         structlog.stdlib.add_log_level,
@@ -32,6 +32,7 @@ def setup_logging() -> None:
         ),
     ]
 
+    processors: list[structlog.types.Processor]
     if settings.ENVIRONMENT == "prod":
         processors = shared_processors + [
             structlog.processors.dict_tracebacks,

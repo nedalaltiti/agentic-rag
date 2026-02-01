@@ -4,7 +4,7 @@ Stores and retrieves session history as LlamaIndex ChatMessage objects,
 with optional session injection for transaction control.
 """
 
-from typing import List, Literal, Optional
+from typing import Literal
 
 import structlog
 from llama_index.core.llms import ChatMessage, MessageRole
@@ -27,8 +27,8 @@ class ConversationMemory:
         self,
         role: Literal["user", "assistant", "system"],
         content: str,
-        metadata: dict = None,
-        session: Optional[AsyncSession] = None,
+        metadata: dict | None = None,
+        session: AsyncSession | None = None,
     ):
         """
         Persists a message.
@@ -42,7 +42,7 @@ class ConversationMemory:
                 await local_session.commit()
 
     async def _save_internal(
-        self, session: AsyncSession, role: str, content: str, metadata: dict
+        self, session: AsyncSession, role: str, content: str, metadata: dict | None
     ):
         msg = Conversation(
             session_id=self.session_id,
@@ -52,7 +52,7 @@ class ConversationMemory:
         )
         session.add(msg)
 
-    async def get_history(self, limit: int = 10) -> List[ChatMessage]:
+    async def get_history(self, limit: int = 10) -> list[ChatMessage]:
         """
         Retrieves recent messages as LlamaIndex ChatMessage objects.
         Chronological order: oldest -> newest.

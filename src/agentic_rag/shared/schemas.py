@@ -3,8 +3,7 @@
 These schemas are used for request/response validation and serialization.
 """
 
-from datetime import datetime
-from typing import Any, Dict, List, Literal, Optional
+from typing import Literal
 
 from pydantic import UUID4, BaseModel, ConfigDict, Field
 
@@ -22,8 +21,8 @@ class Citation(BaseModel):
     document_id: UUID4
     chunk_id: UUID4
     file_name: str
-    page_number: Optional[int] = None
-    section_path: Optional[str] = None
+    page_number: int | None = None
+    section_path: str | None = None
     chunk_text: str
     score: float
 
@@ -40,8 +39,8 @@ class AgentResponse(BaseModel):
     """Response from the agentic RAG pipeline."""
 
     answer: str
-    citations: List[Citation] = Field(default_factory=list)
-    trace_id: Optional[str] = None
+    citations: list[Citation] = Field(default_factory=list)
+    trace_id: str | None = None
     usage: TokenUsage = Field(default_factory=TokenUsage)
 
 
@@ -57,11 +56,11 @@ class OpenAIChatRequest(BaseModel):
 
     model_config = ConfigDict(extra="ignore")
 
-    model: Optional[str] = None  # Optional: default to settings.LLM_MODEL
-    messages: List[OpenAIChatMessage]
+    model: str | None = None  # Optional: default to settings.LLM_MODEL
+    messages: list[OpenAIChatMessage]
     stream: bool = False
     temperature: float = 0.7
-    max_tokens: Optional[int] = None
+    max_tokens: int | None = None
     top_p: float = 1.0
 
 
@@ -70,7 +69,7 @@ class OpenAIChatChoice(BaseModel):
 
     index: int
     message: OpenAIChatMessage
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
 
 
 class OpenAIChatResponse(BaseModel):
@@ -80,15 +79,15 @@ class OpenAIChatResponse(BaseModel):
     object: str = "chat.completion"
     created: int
     model: str
-    choices: List[OpenAIChatChoice]
+    choices: list[OpenAIChatChoice]
     usage: TokenUsage
 
 
 class OpenAIChatStreamDelta(BaseModel):
     """Delta content for streaming response."""
 
-    role: Optional[Literal["assistant"]] = None
-    content: Optional[str] = None
+    role: Literal["assistant"] | None = None
+    content: str | None = None
 
 
 class OpenAIChatStreamChoice(BaseModel):
@@ -96,7 +95,7 @@ class OpenAIChatStreamChoice(BaseModel):
 
     index: int
     delta: OpenAIChatStreamDelta
-    finish_reason: Optional[str] = None
+    finish_reason: str | None = None
 
 
 class OpenAIChatStreamChunk(BaseModel):
@@ -106,7 +105,7 @@ class OpenAIChatStreamChunk(BaseModel):
     object: str = "chat.completion.chunk"
     created: int
     model: str
-    choices: List[OpenAIChatStreamChoice]
+    choices: list[OpenAIChatStreamChoice]
 
 
 class ModelInfo(BaseModel):
@@ -122,4 +121,4 @@ class ModelsListResponse(BaseModel):
     """Response for /v1/models endpoint."""
 
     object: str = "list"
-    data: List[ModelInfo]
+    data: list[ModelInfo]

@@ -9,13 +9,13 @@ from __future__ import annotations
 import asyncio
 import json
 from dataclasses import dataclass
-from typing import Any, Dict, List
+from typing import Any
 
 import pandas as pd
 import structlog
 
-from agentic_rag.backend.rag.retriever import HybridRetriever
 from agentic_rag.backend.rag.reranker import LLMReranker
+from agentic_rag.backend.rag.retriever import HybridRetriever
 from agentic_rag.shared.citations import format_citations
 from agentic_rag.shared.llm_factory import get_embedding_model, get_llm
 from agentic_rag.shared.prompts import PromptRegistry
@@ -26,12 +26,12 @@ logger = structlog.get_logger()
 
 @dataclass
 class EvalResult:
-    overall: Dict[str, float]
+    overall: dict[str, float]
     per_sample: pd.DataFrame
 
 
 def _format_context(
-    citations: List[Citation], max_chunks: int = 5, max_chars_each: int = 1200
+    citations: list[Citation], max_chunks: int = 5, max_chars_each: int = 1200
 ) -> str:
     """Format citations into a readable context block for the LLM."""
     if not citations:
@@ -49,7 +49,7 @@ def _format_context(
     return "\n\n".join(parts)
 
 
-async def _answer_with_fast_rag(question: str, citations: List[Citation]) -> str:
+async def _answer_with_fast_rag(question: str, citations: list[Citation]) -> str:
     """Single-call answer generation using the user_prompt template."""
     llm = get_llm()
     context = _format_context(citations)
@@ -82,13 +82,13 @@ async def evaluate_rag_pipeline(
 
     RAGAS expects a dataset shaped: {question, answer, contexts, ground_truth}.
     """
-    with open(testset_path, "r", encoding="utf-8") as f:
+    with open(testset_path, encoding="utf-8") as f:
         testset = json.load(f)
 
-    questions: List[str] = []
-    answers: List[str] = []
-    contexts: List[List[str]] = []
-    ground_truths: List[str] = []
+    questions: list[str] = []
+    answers: list[str] = []
+    contexts: list[list[str]] = []
+    ground_truths: list[str] = []
 
     retriever = HybridRetriever(include_toc=False)
 
@@ -129,14 +129,14 @@ async def evaluate_rag_pipeline(
     # --- RAGAS Evaluation ---
     from datasets import Dataset
     from ragas import evaluate
+    from ragas.embeddings import LlamaIndexEmbeddingsWrapper
+    from ragas.llms import LlamaIndexLLMWrapper
     from ragas.metrics import (
         answer_relevancy,
         context_precision,
         context_recall,
         faithfulness,
     )
-    from ragas.embeddings import LlamaIndexEmbeddingsWrapper
-    from ragas.llms import LlamaIndexLLMWrapper
 
     evaluator_llm = LlamaIndexLLMWrapper(get_llm())
     evaluator_emb = LlamaIndexEmbeddingsWrapper(get_embedding_model())
@@ -156,7 +156,7 @@ async def evaluate_rag_pipeline(
     except Exception:
         per_sample_df = pd.DataFrame(result)
 
-    overall: Dict[str, Any] = {}
+    overall: dict[str, Any] = {}
     try:
         overall = {k: float(v) for k, v in result.scores.items()}
     except Exception:

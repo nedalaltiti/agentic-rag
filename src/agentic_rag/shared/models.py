@@ -5,7 +5,7 @@ Design Decision: ORM for CRUD, raw SQL for vector similarity queries.
 
 import uuid
 from datetime import datetime
-from typing import Any, List, Optional
+from typing import Any
 
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import DateTime, ForeignKey, Integer, String, Text, func, text
@@ -25,12 +25,12 @@ class Document(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
-    file_path: Mapped[Optional[str]] = mapped_column(String(1024))
+    file_path: Mapped[str | None] = mapped_column(String(1024))
 
     # Partial unique index handles constraints; removed unique=True to match DB
-    file_hash: Mapped[Optional[str]] = mapped_column(String(64))
+    file_hash: Mapped[str | None] = mapped_column(String(64))
 
-    page_count: Mapped[Optional[int]] = mapped_column(Integer)
+    page_count: Mapped[int | None] = mapped_column(Integer)
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -38,7 +38,7 @@ class Document(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
-    chunks: Mapped[List["Chunk"]] = relationship(
+    chunks: Mapped[list["Chunk"]] = relationship(
         "Chunk", back_populates="document", cascade="all, delete-orphan"
     )
 
@@ -56,7 +56,7 @@ class Chunk(Base):
     )
 
     content: Mapped[str] = mapped_column(Text, nullable=False)
-    contextual_content: Mapped[Optional[str]] = mapped_column(Text)
+    contextual_content: Mapped[str | None] = mapped_column(Text)
 
     # Typed metadata
     metadata_: Mapped[dict[str, Any]] = mapped_column(

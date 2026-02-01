@@ -7,17 +7,17 @@ This module initializes the FastAPI application with:
 - API routes (health checks, chat endpoints)
 """
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
-from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
+from agentic_rag.backend.api.v1 import chat, health
 from agentic_rag.shared.config import settings
 from agentic_rag.shared.logging import setup_logging
 from agentic_rag.shared.observability import setup_observability
 from agentic_rag.shared.prompts import PromptRegistry
-from agentic_rag.backend.api.v1 import chat, health
 
 
 @asynccontextmanager

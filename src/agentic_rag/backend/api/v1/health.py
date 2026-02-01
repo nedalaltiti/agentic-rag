@@ -5,8 +5,8 @@ Provides OpenWebUI-compatible health status and model discovery.
 
 import time
 
-from fastapi import APIRouter
 import structlog
+from fastapi import APIRouter
 
 from agentic_rag.shared.config import settings
 from agentic_rag.shared.health import check_all_services, get_overall_status

@@ -48,7 +48,7 @@ def report(
     """Pretty-print summary metrics from an evaluation results JSON."""
     import json
 
-    with open(results, "r", encoding="utf-8") as f:
+    with open(results, encoding="utf-8") as f:
         data = json.load(f)
 
     overall = data.get("overall", {})

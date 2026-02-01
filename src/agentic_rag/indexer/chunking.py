@@ -10,7 +10,7 @@ Supports two modes:
 
 import asyncio
 import re
-from typing import Any, Dict, List, Literal, Tuple
+from typing import Any, Literal
 
 import structlog
 from llama_index.core.node_parser import SentenceSplitter
@@ -44,7 +44,7 @@ class ContextualChunker:
     # ------------------------------------------------------------------
 
     @staticmethod
-    def _split_by_headings(text: str) -> List[Dict[str, Any]]:
+    def _split_by_headings(text: str) -> list[dict[str, Any]]:
         """Split markdown into sections based on ## – ###### headings."""
         matches = list(_HEADING_RE.finditer(text))
 
@@ -59,8 +59,8 @@ class ContextualChunker:
                 }
             ]
 
-        sections: List[Dict[str, Any]] = []
-        stack: List[Tuple[int, str]] = []
+        sections: list[dict[str, Any]] = []
+        stack: list[tuple[int, str]] = []
 
         # Text before the first heading → front-matter candidate
         pre_heading = text[: matches[0].start()].strip()
@@ -109,8 +109,8 @@ class ContextualChunker:
 
     @staticmethod
     def _detect_toc_or_frontmatter(
-        sections: List[Dict[str, Any]],
-    ) -> List[Dict[str, Any]]:
+        sections: list[dict[str, Any]],
+    ) -> list[dict[str, Any]]:
         """Flag TOC and front-matter sections using simple heuristics."""
         found_content = False
 
@@ -122,10 +122,10 @@ class ContextualChunker:
             if "table of contents" in title_lower:
                 is_toc = True
             elif section["body"]:
-                lines = [l for l in section["body"].splitlines() if l.strip()]
+                lines = [ln for ln in section["body"].splitlines() if ln.strip()]
                 if lines:
                     bullet_lines = sum(
-                        1 for l in lines if l.strip().startswith(("*", "-"))
+                        1 for ln in lines if ln.strip().startswith(("*", "-"))
                     )
                     if bullet_lines / len(lines) >= 0.6:
                         is_toc = True
@@ -152,9 +152,9 @@ class ContextualChunker:
     async def process_document(
         self,
         text: str,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
         mode: Literal["llm", "fast"] = "fast",
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """
         Split by headings, detect TOC/front-matter, sub-split large sections,
         then embed with structured prefix.
@@ -168,7 +168,7 @@ class ContextualChunker:
         sections = self._detect_toc_or_frontmatter(sections)
 
         # 3. Build raw chunks with section metadata
-        raw_chunks: List[Dict[str, Any]] = []
+        raw_chunks: list[dict[str, Any]] = []
         global_index = 0
 
         for section in sections:
@@ -210,7 +210,7 @@ class ContextualChunker:
         )
 
         # 4. Process in batches (embed + metadata)
-        all_processed: List[Dict[str, Any]] = []
+        all_processed: list[dict[str, Any]] = []
         batch_size = 20
 
         for i in range(0, len(raw_chunks), batch_size):
@@ -229,11 +229,11 @@ class ContextualChunker:
 
     async def _process_single_chunk(
         self,
-        section_info: Dict[str, Any],
+        section_info: dict[str, Any],
         full_text: str,
-        metadata: Dict[str, Any],
+        metadata: dict[str, Any],
         mode: str,
-    ) -> Dict[str, Any]:
+    ) -> dict[str, Any]:
         """Process a single chunk with structured prefix and embedding."""
         chunk_text = section_info["text"]
         file_name = metadata.get("file_name", "Unknown")
@@ -280,7 +280,7 @@ class ContextualChunker:
         async with self._semaphore:
             try:
                 response = await self.llm.acomplete(prompt)
-                return response.text.strip()
+                return str(response.text).strip()
             except Exception as e:
                 logger.warning("Context generation failed", error=str(e))
                 return ""

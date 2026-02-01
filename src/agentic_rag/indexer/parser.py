@@ -49,7 +49,7 @@ class DocumentParser:
                 return file_path.read_text(encoding="utf-8")
 
             result = self.converter.convert(file_path)
-            return result.document.export_to_markdown()
+            return str(result.document.export_to_markdown())
         except Exception as e:
             logger.error("Failed to parse document", file=file_path.name, error=str(e))
             raise

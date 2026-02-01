@@ -3,7 +3,7 @@
 Defines researcher and writer agents with prompts from Phoenix.
 """
 
-from crewai import Agent, LLM
+from crewai import LLM, Agent
 
 from agentic_rag.shared.config import settings
 from agentic_rag.shared.prompts import PromptRegistry

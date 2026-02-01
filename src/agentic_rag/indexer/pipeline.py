@@ -109,10 +109,8 @@ class IngestionPipeline:
                         session.add_all(chunk_objs)
                         await session.commit()
 
-                        progress.update(
-                            task_id,
-                            description=f"[green]Indexed {file_path.name} ({len(chunk_objs)} chunks)[/green]",
-                        )
+                        msg = f"Indexed {file_path.name} ({len(chunk_objs)} chunks)"
+                        progress.update(task_id, description=f"[green]{msg}[/green]")
 
                     except Exception as e:
                         logger.error("Pipeline error", file=file_path.name, error=str(e))

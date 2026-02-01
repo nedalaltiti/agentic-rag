@@ -6,12 +6,12 @@ using an AnyIO-first bridge with asyncio.run fallback.
 
 import asyncio
 
+import structlog
 from crewai.tools import BaseTool
 from pydantic import Field, PrivateAttr
-import structlog
 
-from agentic_rag.backend.rag.retriever import HybridRetriever
 from agentic_rag.backend.rag.reranker import LLMReranker
+from agentic_rag.backend.rag.retriever import HybridRetriever
 from agentic_rag.shared.citations import format_citations
 from agentic_rag.shared.memory import ConversationMemory
 

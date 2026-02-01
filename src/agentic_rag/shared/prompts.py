@@ -111,7 +111,7 @@ class PromptRegistry:
         try:
             # Try tagged version for stability (e.g., "production")
             pv = client.prompts.get(prompt_identifier=name, tag=settings.PHOENIX_PROMPT_TAG)
-            return pv.template
+            return str(pv.template)
         except Exception as e:
             logger.warning(
                 "Failed to fetch prompt from Phoenix; using local fallback",
@@ -163,11 +163,10 @@ class PromptRegistry:
                 # Create a new version (server will create prompt if missing)
                 created = client.prompts.create(
                     name=name,
-                    version=PromptVersion(
+                    version=PromptVersion(  # type: ignore[call-arg]
                         template=template_src,
                         model_name=settings.LLM_MODEL,
-                        # model_provider is optional; keep a generic value
-                        model_provider="CUSTOM",
+                        model_provider="OLLAMA",
                     ),
                     prompt_description=f"Synced from repo ({name}.j2)",
                     prompt_metadata={

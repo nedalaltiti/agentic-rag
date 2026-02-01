@@ -18,7 +18,9 @@ console = Console()
 
 @app.command()
 def ingest(
-    source: Path = typer.Option(..., help="Path to directory containing documents (PDF, DOCX, DOC, MD)"),
+    source: Path = typer.Option(
+        ..., help="Path to directory containing documents (PDF, DOCX, DOC, MD)"
+    ),
     mode: str = typer.Option("fast", help="Chunking mode: 'fast' or 'llm'", case_sensitive=False),
 ):
     """
@@ -50,7 +52,7 @@ def ingest(
         console.print("[yellow]Ingestion stopped by user.[/yellow]")
     except Exception as e:
         console.print(f"[red]Fatal Error: {e}[/red]")
-        raise typer.Exit(code=1)
+        raise typer.Exit(code=1) from e
 
 
 if __name__ == "__main__":

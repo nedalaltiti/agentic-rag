@@ -10,7 +10,7 @@ import asyncio
 import json
 import random
 from dataclasses import dataclass
-from typing import Any, Dict, List, Optional
+from typing import Any
 
 import structlog
 from sqlalchemy import text
@@ -28,7 +28,7 @@ class TestSample:
     document_id: str
     chunk_id: str
     file_name: str
-    section_path: Optional[str]
+    section_path: str | None
     context: str
 
 
@@ -49,19 +49,19 @@ Context snippet:
 """
 
 
-def _safe_json_loads(text_str: str) -> Optional[Dict[str, Any]]:
+def _safe_json_loads(text_str: str) -> dict[str, Any] | None:
     """Best-effort extraction of the first JSON object from LLM output."""
     start = text_str.find("{")
     end = text_str.rfind("}")
     if start == -1 or end == -1 or end <= start:
         return None
     try:
-        return json.loads(text_str[start : end + 1])
+        return dict(json.loads(text_str[start : end + 1]))
     except Exception:
         return None
 
 
-async def _fetch_random_chunks(limit: int = 50) -> List[Dict[str, Any]]:
+async def _fetch_random_chunks(limit: int = 50) -> list[dict[str, Any]]:
     """Pull random chunks from DB with metadata needed for evaluation."""
     sql = text(
         """
@@ -90,7 +90,7 @@ async def generate_synthetic_testset(
     output_path: str,
     seed: int = 42,
     max_context_chars: int = 1500,
-) -> List[TestSample]:
+) -> list[TestSample]:
     """Generate synthetic Q/A pairs from random chunks using the local LLM."""
     random.seed(seed)
     llm = get_llm()
@@ -99,7 +99,7 @@ async def generate_synthetic_testset(
     candidates = await _fetch_random_chunks(limit=max(50, num_samples * 3))
     random.shuffle(candidates)
 
-    samples: List[TestSample] = []
+    samples: list[TestSample] = []
     for row in candidates:
         if len(samples) >= num_samples:
             break

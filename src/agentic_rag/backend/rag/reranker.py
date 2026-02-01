@@ -5,7 +5,6 @@ Uses Ollama LLM to score relevance of candidates and re-rank them.
 
 import asyncio
 import re
-from typing import List
 
 import structlog
 from llama_index.core.schema import NodeWithScore
@@ -25,7 +24,7 @@ class LLMReranker:
         self.top_n = settings.TOP_K_RERANK
         self._semaphore = asyncio.Semaphore(5)
 
-    async def rerank(self, query: str, nodes: List[NodeWithScore]) -> List[NodeWithScore]:
+    async def rerank(self, query: str, nodes: list[NodeWithScore]) -> list[NodeWithScore]:
         """
         Re-rank nodes by LLM-scored relevance.
 
