@@ -7,7 +7,7 @@ It’s intentionally “boring” in the good way: reproducible Docker setup, cl
 ## What’s included
 
 * **Indexer CLI** (Docling → chunk → embed → store in pgvector)
-* **Backend API** (FastAPI + `/v1/chat` + agent tools)
+* **Backend API** (FastAPI + `/v1/chat/completions` + agent tools)
 * **Evaluator CLI** (RAGAS metrics over a generated/curated test set)
 * **Observability** (Phoenix traces for retrieval + tool calls)
 
@@ -45,7 +45,7 @@ curl http://localhost:8000/health
 Put PDFs in `data/raw/` then:
 
 ```bash
-agentic-index --input-dir data/raw/ --chunk-size 512 --overlap 50
+agentic-index --source data/raw/
 ```
 
 ### Chat (OpenWebUI)
@@ -57,7 +57,7 @@ agentic-index --input-dir data/raw/ --chunk-size 512 --overlap 50
 The backend exposes:
 
 * `GET /v1/models`
-* `POST /v1/chat`
+* `POST /v1/chat/completions`
 
 ### Traces (Phoenix)
 
@@ -125,7 +125,7 @@ The agent's text response typically includes inline citations like: `"According 
 
 |     Service |  Port | Notes                            |
 | ----------: | :---: | -------------------------------- |
-| Backend API |  8000 | FastAPI (`/v1/chat`) |
+| Backend API |  8000 | FastAPI (`/v1/chat/completions`) |
 |   OpenWebUI |  3000 | Chat frontend                    |
 |  PostgreSQL |  5432 | pgvector store                   |
 |      Ollama | 11434 | local LLM + embeddings           |
