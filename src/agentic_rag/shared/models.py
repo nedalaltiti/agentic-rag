@@ -21,9 +21,7 @@ class Document(Base):
 
     __tablename__ = "documents"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str | None] = mapped_column(String(1024))
 
@@ -48,9 +46,7 @@ class Chunk(Base):
 
     __tablename__ = "chunks"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     document_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
@@ -78,9 +74,7 @@ class Conversation(Base):
 
     __tablename__ = "conversations"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id: Mapped[str] = mapped_column(String(255), nullable=False)
     role: Mapped[str] = mapped_column(String(50), nullable=False)
     content: Mapped[str] = mapped_column(Text, nullable=False)

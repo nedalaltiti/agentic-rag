@@ -124,9 +124,7 @@ class ContextualChunker:
             elif section["body"]:
                 lines = [ln for ln in section["body"].splitlines() if ln.strip()]
                 if lines:
-                    bullet_lines = sum(
-                        1 for ln in lines if ln.strip().startswith(("*", "-"))
-                    )
+                    bullet_lines = sum(1 for ln in lines if ln.strip().startswith(("*", "-")))
                     if bullet_lines / len(lines) >= 0.6:
                         is_toc = True
 
@@ -215,9 +213,7 @@ class ContextualChunker:
 
         for i in range(0, len(raw_chunks), batch_size):
             batch = raw_chunks[i : i + batch_size]
-            tasks = [
-                self._process_single_chunk(rc, text, metadata, mode) for rc in batch
-            ]
+            tasks = [self._process_single_chunk(rc, text, metadata, mode) for rc in batch]
             results = await asyncio.gather(*tasks)
             all_processed.extend(results)
 

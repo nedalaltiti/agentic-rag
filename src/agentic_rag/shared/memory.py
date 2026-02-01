@@ -98,9 +98,7 @@ class ConversationMemory:
         """Clears memory for this session. Crucial for RAG evaluation."""
         try:
             async with AsyncSessionLocal() as session:
-                stmt = delete(Conversation).where(
-                    Conversation.session_id == self.session_id
-                )
+                stmt = delete(Conversation).where(Conversation.session_id == self.session_id)
                 await session.execute(stmt)
                 await session.commit()
                 logger.info("Memory cleared", session_id=self.session_id)

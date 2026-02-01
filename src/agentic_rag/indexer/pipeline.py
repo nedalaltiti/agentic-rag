@@ -45,8 +45,11 @@ class IngestionPipeline:
             mode: Chunking mode ('fast' or 'llm')
         """
         files = sorted(
-            [f for f in source_dir.iterdir()
-             if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS],
+            [
+                f
+                for f in source_dir.iterdir()
+                if f.is_file() and f.suffix.lower() in SUPPORTED_EXTENSIONS
+            ],
             key=lambda p: p.name.lower(),
         )
         if not files:
@@ -60,7 +63,6 @@ class IngestionPipeline:
             TextColumn("[progress.description]{task.description}"),
             transient=True,
         ) as progress:
-
             async with AsyncSessionLocal() as session:
                 for file_path in files:
                     task_id = progress.add_task(

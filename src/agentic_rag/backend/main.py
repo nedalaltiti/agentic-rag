@@ -29,19 +29,19 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     - Initialize structured logging
     - Setup Phoenix observability with OpenInference auto-instrumentation
     - Sync prompts to Phoenix (best-effort, non-blocking)
-    
+
     Shutdown:
     - Cleanup resources (if needed)
     """
     # Startup
     setup_logging()
     setup_observability(app)
-    
+
     # Best-effort prompt sync - never blocks startup
     PromptRegistry.sync_to_phoenix(version_tag=settings.APP_VERSION)
-    
+
     yield
-    
+
     # Shutdown
     # TODO: Cleanup resources if needed (DB pool, etc.)
 

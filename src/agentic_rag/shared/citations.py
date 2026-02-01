@@ -27,9 +27,7 @@ def format_citations(nodes: list[NodeWithScore]) -> list[Citation]:
         try:
             doc_id = uuid.UUID(str(raw_doc_id))
         except (ValueError, TypeError):
-            logger.error(
-                "Skipping citation: Invalid/Missing document_id", raw=raw_doc_id
-            )
+            logger.error("Skipping citation: Invalid/Missing document_id", raw=raw_doc_id)
             continue
 
         # 2. Chunk ID

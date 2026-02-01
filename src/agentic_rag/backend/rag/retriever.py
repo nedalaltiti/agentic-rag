@@ -87,9 +87,7 @@ class HybridRetriever(BaseRetriever):
         process_rows(keyword_rows, weight=self.WEIGHT_KEYWORD)
 
         # Sort by fused score
-        sorted_ids = sorted(
-            fused_scores.keys(), key=lambda x: fused_scores[x], reverse=True
-        )
+        sorted_ids = sorted(fused_scores.keys(), key=lambda x: fused_scores[x], reverse=True)
         final_ids = sorted_ids[: self.top_k]
 
         # Convert to LlamaIndex Nodes
@@ -127,9 +125,7 @@ class HybridRetriever(BaseRetriever):
             bindparam("limit", type_=Integer),
         )
 
-        result = await session.execute(
-            stmt, {"embed": embedding, "limit": self.top_k * 2}
-        )
+        result = await session.execute(stmt, {"embed": embedding, "limit": self.top_k * 2})
         return result.fetchall()
 
     async def _keyword_search(self, session, query: str):
@@ -148,7 +144,5 @@ class HybridRetriever(BaseRetriever):
             bindparam("limit", type_=Integer),
         )
 
-        result = await session.execute(
-            stmt, {"query": query, "limit": self.top_k * 2}
-        )
+        result = await session.execute(stmt, {"query": query, "limit": self.top_k * 2})
         return result.fetchall()

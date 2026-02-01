@@ -65,7 +65,7 @@ class LLMReranker:
             try:
                 response = await self.llm.acomplete(prompt)
                 score_text = (response.text or "").strip()
-                
+
                 # Extract number from response
                 match = re.search(r"\b(10|[0-9](?:\.[0-9]+)?)\b", score_text)
                 if match:

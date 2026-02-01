@@ -26,14 +26,14 @@ class CrewRunner:
     def kickoff_with_context(self, query: str, knowledge_context: str) -> str:
         """
         Run CrewAI with pre-retrieved context (deterministic RAG).
-        
+
         This bypasses the researcher's tool usage and passes documents
         directly to the writer for synthesis.
-        
+
         Args:
             query: User's question
             knowledge_context: Pre-formatted KNOWLEDGE block from retrieval
-        
+
         Returns:
             Synthesized response with citations
         """
@@ -74,7 +74,7 @@ class CrewRunner:
     def kickoff(self, query: str) -> str:
         """
         Run the full CrewAI pipeline with tool usage.
-        
+
         Note: Requires a capable model (7B+) for reliable tool calling.
         For smaller models, use kickoff_with_context instead.
         """

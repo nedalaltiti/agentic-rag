@@ -73,16 +73,10 @@ class DatabaseSearchTool(BaseTool):
 
             result_text = ""
             for i, cit in enumerate(citations[:8]):
-                snippet = cit.chunk_text[:1000] + (
-                    "..." if len(cit.chunk_text) > 1000 else ""
-                )
-                page_str = (
-                    f"Page {cit.page_number}" if cit.page_number is not None else "Page ?"
-                )
+                snippet = cit.chunk_text[:1000] + ("..." if len(cit.chunk_text) > 1000 else "")
+                page_str = f"Page {cit.page_number}" if cit.page_number is not None else "Page ?"
 
-                section_str = (
-                    f"Section: {cit.section_path}\n" if cit.section_path else ""
-                )
+                section_str = f"Section: {cit.section_path}\n" if cit.section_path else ""
 
                 result_text += (
                     f"--- Source {i + 1} ---\n"

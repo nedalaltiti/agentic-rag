@@ -25,9 +25,7 @@ class Settings(BaseSettings):
 
     # Database (Postgres + PGVector)
     # Typed as str to avoid Pydantic validation issues with 'postgresql+asyncpg' scheme
-    DATABASE_URL: str = Field(
-        default="postgresql+asyncpg://postgres:postgres@postgres:5432/ragdb"
-    )
+    DATABASE_URL: str = Field(default="postgresql+asyncpg://postgres:postgres@postgres:5432/ragdb")
     DB_POOL_SIZE: int = 20
     DB_MAX_OVERFLOW: int = 10
 

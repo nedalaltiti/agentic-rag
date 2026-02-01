@@ -179,9 +179,7 @@ async def evaluate_rag_pipeline(
     return EvalResult(overall=overall, per_sample=per_sample_df)
 
 
-def evaluate_sync(
-    testset_path: str, output_path: str, use_reranker: bool = True
-) -> None:
+def evaluate_sync(testset_path: str, output_path: str, use_reranker: bool = True) -> None:
     """Synchronous entry point for the CLI."""
     asyncio.run(
         evaluate_rag_pipeline(
