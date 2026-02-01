@@ -58,6 +58,20 @@ The backend exposes:
 
 * `GET /v1/models`
 * `POST /v1/chat/completions`
+* `GET /docs` — interactive Swagger UI
+
+### Evaluate (RAGAS)
+
+```bash
+# 1. Generate a synthetic test set from indexed chunks
+agentic-eval generate --num-samples 10 --output eval_testset.json
+
+# 2. Run retrieval + answer pipeline and compute RAGAS metrics
+agentic-eval evaluate --testset eval_testset.json --output eval_results.json
+
+# 3. Pretty-print the results
+agentic-eval report --results eval_results.json
+```
 
 ### Traces (Phoenix)
 
@@ -147,6 +161,30 @@ The agent's text response typically includes inline citations like: `"According 
 
 * Confirm the indexer ran successfully and vectors are in Postgres.
 * Check DB connection string and schema migration ran.
+
+## Local development (without Docker)
+
+```bash
+# 1. Install the project in editable mode
+pip install -e ".[dev,eval]"
+
+# 2. Start Postgres (pgvector), Ollama, and Phoenix however you prefer,
+#    then point your .env at localhost (see Quick start note above).
+
+# 3. Run the database migrations manually
+psql "$DATABASE_URL" -f migrations/001_init_extensions.sql
+psql "$DATABASE_URL" -f migrations/002_create_tables.sql
+psql "$DATABASE_URL" -f migrations/003_create_indexes.sql
+
+# 4. Pull the required Ollama models
+ollama pull qwen3:1.7b
+ollama pull qwen3-embedding:0.6b
+
+# 5. Start the backend
+agentic-api
+```
+
+API docs are available at `http://localhost:8000/docs` (Swagger UI).
 
 ## Development
 
