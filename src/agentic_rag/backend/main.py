@@ -79,3 +79,15 @@ async def root() -> dict[str, str]:
         "docs": "/docs",
         "status": "operational",
     }
+
+
+def start():
+    """Entry point for the ``agentic-api`` console script."""
+    import uvicorn
+
+    uvicorn.run(
+        "agentic_rag.backend.main:app",
+        host=settings.API_HOST,
+        port=settings.API_PORT,
+        reload=False,
+    )
