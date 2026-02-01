@@ -1,8 +1,4 @@
-"""Structured logging configuration using structlog.
-
-Configures JSON logging for production and colored console output for development.
-Integrates with standard library logging for third-party library compatibility.
-"""
+"""Structured logging configuration using structlog."""
 
 import logging
 import sys
@@ -13,12 +9,7 @@ from .config import settings
 
 
 def setup_logging() -> None:
-    """
-    Configure structlog to intercept standard logging.
-
-    Includes robust idempotency guard using handler names to prevent
-    duplicate logs on reload without breaking other handlers (e.g., pytest).
-    """
+    """Configure structlog with JSON (prod) or console (dev) output."""
     shared_processors: list[structlog.types.Processor] = [
         structlog.contextvars.merge_contextvars,
         structlog.stdlib.add_logger_name,
@@ -59,17 +50,14 @@ def setup_logging() -> None:
 
     root_logger = logging.getLogger()
 
-    # IDEMPOTENCY GUARD: Check for our specific named handler
-    # Prevents duplicate logs on reload without breaking other handlers
     if not any(getattr(h, "name", "") == "structlog_handler" for h in root_logger.handlers):
         handler = logging.StreamHandler(sys.stdout)
         handler.setFormatter(formatter)
-        handler.name = "structlog_handler"  # Tag our handler
+        handler.name = "structlog_handler"
         root_logger.addHandler(handler)
 
     root_logger.setLevel(settings.LOG_LEVEL.upper())
 
-    # Clean up Uvicorn loggers to use our formatting
     for _log in ["uvicorn", "uvicorn.error", "uvicorn.access"]:
         logger = logging.getLogger(_log)
         logger.handlers = []

@@ -1,8 +1,4 @@
-"""Hybrid retrieval combining semantic and keyword search.
-
-Uses parallel pgvector cosine search and PostgreSQL full-text search,
-fused via Reciprocal Rank Fusion (RRF) with type-safe SQL bindings.
-"""
+"""Hybrid retrieval combining semantic and keyword search via RRF."""
 
 import asyncio
 
@@ -48,14 +44,12 @@ class HybridRetriever(BaseRetriever):
         query = query_bundle.query_str
         logger.info("Starting Hybrid Search", query=query)
 
-        # 1. Generate Query Embedding (instruction-prefixed for Qwen3)
         instruct_query = (
             "Instruct: Given a search query, retrieve relevant passages that answer the query.\n"
             f"Query: {query}"
         )
         query_embedding = await self.embed_model.aget_query_embedding(instruct_query)
 
-        # 2. Execute Parallel Searches
         async with AsyncSessionLocal() as s1, AsyncSessionLocal() as s2:
             results = await asyncio.gather(
                 self._vector_search(s1, query_embedding),
@@ -63,14 +57,12 @@ class HybridRetriever(BaseRetriever):
             )
             vector_rows, keyword_rows = results
 
-        # 3. Reciprocal Rank Fusion (RRF)
         fused_scores: dict[str, float] = {}
         node_map: dict[str, dict] = {}
 
         def process_rows(rows, weight=1.0):
             for rank, row in enumerate(rows):
                 row_id = str(row.id)
-                # RRF Formula: 1 / (k + rank)
                 score = 1.0 / (self.RRF_K + rank)
                 fused_scores[row_id] = fused_scores.get(row_id, 0.0) + (score * weight)
 
@@ -86,11 +78,9 @@ class HybridRetriever(BaseRetriever):
         process_rows(vector_rows, weight=self.WEIGHT_VECTOR)
         process_rows(keyword_rows, weight=self.WEIGHT_KEYWORD)
 
-        # Sort by fused score
         sorted_ids = sorted(fused_scores.keys(), key=lambda x: fused_scores[x], reverse=True)
         final_ids = sorted_ids[: self.top_k]
 
-        # Convert to LlamaIndex Nodes
         nodes = []
         for vid in final_ids:
             data = node_map[vid]
@@ -112,7 +102,6 @@ class HybridRetriever(BaseRetriever):
 
     async def _vector_search(self, session, embedding: list[float]):
         """Semantic search with type-safe bindings."""
-        # Safe: filter_clause is always "" or the _FILTER_TOC_FM class constant
         filter_clause = "" if self.include_toc else self._FILTER_TOC_FM
         stmt = text(f"""
             SELECT id, document_id, content, metadata
@@ -130,7 +119,6 @@ class HybridRetriever(BaseRetriever):
 
     async def _keyword_search(self, session, query: str):
         """Lexical search with type-safe bindings."""
-        # Safe: filter_clause is always "" or the _FILTER_TOC_FM class constant
         filter_clause = "" if self.include_toc else self._FILTER_TOC_FM
         stmt = text(f"""
             SELECT id, document_id, content, metadata

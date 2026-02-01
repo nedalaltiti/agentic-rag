@@ -1,8 +1,4 @@
-"""RAGAS metrics evaluation for the RAG pipeline.
-
-Runs retrieval + answer generation per sample, then evaluates with
-faithfulness, answer_relevancy, context_precision, and context_recall.
-"""
+"""RAGAS metrics evaluation for the RAG pipeline."""
 
 from __future__ import annotations
 
@@ -126,7 +122,6 @@ async def evaluate_rag_pipeline(
         }
     )
 
-    # --- RAGAS Evaluation ---
     from datasets import Dataset
     from ragas import evaluate
     from ragas.embeddings import LlamaIndexEmbeddingsWrapper
@@ -141,7 +136,6 @@ async def evaluate_rag_pipeline(
     evaluator_llm = LlamaIndexLLMWrapper(get_llm())
     evaluator_emb = LlamaIndexEmbeddingsWrapper(get_embedding_model())
 
-    # Convert to HuggingFace Dataset (RAGAS expects this across versions)
     ds = Dataset.from_pandas(df)
 
     result = evaluate(

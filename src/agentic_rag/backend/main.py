@@ -1,11 +1,4 @@
-"""FastAPI application entrypoint.
-
-This module initializes the FastAPI application with:
-- Lifespan events for startup/shutdown
-- Phoenix observability and prompt management
-- CORS middleware for OpenWebUI connectivity
-- API routes (health checks, chat endpoints)
-"""
+"""FastAPI application entrypoint."""
 
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
@@ -22,28 +15,13 @@ from agentic_rag.shared.prompts import PromptRegistry
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """
-    Application lifespan handler for startup and shutdown events.
-
-    Startup:
-    - Initialize structured logging
-    - Setup Phoenix observability with OpenInference auto-instrumentation
-    - Sync prompts to Phoenix (best-effort, non-blocking)
-
-    Shutdown:
-    - Cleanup resources (if needed)
-    """
-    # Startup
+    """Application startup and shutdown handler."""
     setup_logging()
     setup_observability(app)
 
-    # Best-effort prompt sync - never blocks startup
     PromptRegistry.sync_to_phoenix(version_tag=settings.APP_VERSION)
 
     yield
-
-    # Shutdown
-    # TODO: Cleanup resources if needed (DB pool, etc.)
 
 
 app = FastAPI(
@@ -56,16 +34,14 @@ app = FastAPI(
     openapi_url="/openapi.json",
 )
 
-# CORS middleware for OpenWebUI connectivity
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Configure appropriately for production
+    allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
-# Include API routers
 app.include_router(health.router)
 app.include_router(chat.router)
 

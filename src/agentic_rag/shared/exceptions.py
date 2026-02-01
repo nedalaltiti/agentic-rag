@@ -1,8 +1,4 @@
-"""Custom exceptions for consistent error handling across the application.
-
-These exceptions provide structured error information for API responses
-and logging.
-"""
+"""Custom exceptions for the agentic RAG application."""
 
 
 class AgenticRAGError(Exception):

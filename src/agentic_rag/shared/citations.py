@@ -1,8 +1,4 @@
-"""Citation extraction and formatting from retrieved nodes.
-
-Converts LlamaIndex NodeWithScore objects into validated Citation schemas
-with strict UUID enforcement for document and chunk identifiers.
-"""
+"""Citation extraction from retrieved nodes."""
 
 import uuid
 
@@ -22,7 +18,6 @@ def format_citations(nodes: list[NodeWithScore]) -> list[Citation]:
         node = node_score.node
         meta = node.metadata or {}
 
-        # 1. Document ID
         raw_doc_id = meta.get("document_id")
         try:
             doc_id = uuid.UUID(str(raw_doc_id))
@@ -30,14 +25,12 @@ def format_citations(nodes: list[NodeWithScore]) -> list[Citation]:
             logger.error("Skipping citation: Invalid/Missing document_id", raw=raw_doc_id)
             continue
 
-        # 2. Chunk ID
         try:
             chunk_id = uuid.UUID(str(node.node_id))
         except (ValueError, TypeError):
             logger.error("Skipping citation: Invalid chunk_id", raw=node.node_id)
             continue
 
-        # 3. Metadata
         file_name = meta.get("file_name", "Unknown Source")
         page_num = meta.get("page_number")
         section_path = meta.get("section_path")

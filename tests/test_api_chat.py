@@ -17,8 +17,6 @@ from agentic_rag.backend.api.v1.chat import (
 )
 from agentic_rag.shared.schemas import OpenAIChatMessage
 
-# ── _is_conversational ──────────────────────────────────────────────
-
 
 class TestIsConversational:
     @pytest.mark.parametrize("msg", ["hello", "Hi", "hey!", "thanks", "bye", "ok"])
@@ -42,9 +40,6 @@ class TestIsConversational:
         assert _is_conversational("x") is True
 
 
-# ── _is_openwebui_internal_request ──────────────────────────────────
-
-
 class TestOpenWebuiInternalRequest:
     def test_title_request(self):
         query = "### Task: Generate a title with emoji for this conversation"
@@ -64,9 +59,6 @@ class TestOpenWebuiInternalRequest:
         assert resp == ""
 
 
-# ── _should_use_agent_mode ──────────────────────────────────────────
-
-
 class TestShouldUseAgentMode:
     def test_agent_mode_header(self):
         assert _should_use_agent_mode("What is PDPL?", "true") is True
@@ -78,9 +70,6 @@ class TestShouldUseAgentMode:
         assert _should_use_agent_mode("### Task: generate title", None) is False
 
 
-# ── _format_sources_section ─────────────────────────────────────────
-
-
 class TestFormatSourcesSection:
     def test_with_citations(self, sample_citations):
         result = _format_sources_section(sample_citations)
@@ -89,9 +78,6 @@ class TestFormatSourcesSection:
 
     def test_empty(self):
         assert _format_sources_section([]) == ""
-
-
-# ── _format_context_for_llm ─────────────────────────────────────────
 
 
 class TestFormatContextForLLM:
@@ -106,9 +92,6 @@ class TestFormatContextForLLM:
         assert "No relevant documents found" in result
 
 
-# ── _get_session_id ─────────────────────────────────────────────────
-
-
 class TestGetSessionId:
     def test_header_priority(self):
         messages = [OpenAIChatMessage(role="user", content="hello")]
@@ -121,9 +104,6 @@ class TestGetSessionId:
         sid2 = _get_session_id(messages)
         assert sid1 == sid2
         assert len(sid1) == 16
-
-
-# ── chat_completions endpoint ───────────────────────────────────────
 
 
 class TestChatCompletionsEndpoint:

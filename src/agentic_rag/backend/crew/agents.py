@@ -12,9 +12,7 @@ from .tools import DatabaseSearchTool, MemoryLookupTool
 
 
 def _get_llm() -> LLM:
-    """
-    Lazy LLM initialization to avoid import-time errors.
-    """
+    """Lazy LLM initialization to avoid import-time errors."""
     return LLM(
         model=f"ollama/{settings.LLM_MODEL}",
         base_url=settings.OLLAMA_BASE_URL,
@@ -23,17 +21,7 @@ def _get_llm() -> LLM:
 
 
 def create_researcher_agent(session_id: str) -> Agent:
-    """
-    Create the researcher agent.
-
-    Retrieves information from the knowledge base and conversation history.
-
-    Args:
-        session_id: Session ID for conversation memory
-
-    Returns:
-        Configured Agent instance
-    """
+    """Create the researcher agent with knowledge base and memory tools."""
     llm = _get_llm()
     return Agent(
         role="Senior Research Analyst",
@@ -47,14 +35,7 @@ def create_researcher_agent(session_id: str) -> Agent:
 
 
 def create_writer_agent() -> Agent:
-    """
-    Create the writer agent.
-
-    Synthesizes retrieved information into coherent answers with citations.
-
-    Returns:
-        Configured Agent instance
-    """
+    """Create the writer agent for synthesizing answers with citations."""
     llm = _get_llm()
     return Agent(
         role="Technical Content Synthesizer",

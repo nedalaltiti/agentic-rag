@@ -1,9 +1,4 @@
-"""CrewAI pipeline orchestration for query processing.
-
-Supports two modes:
-1. kickoff_with_context: Pre-retrieved context passed to writer (deterministic)
-2. kickoff: Full agent pipeline with tool usage (requires capable model)
-"""
+"""CrewAI pipeline orchestration for query processing."""
 
 import structlog
 from crewai import Crew, Process, Task
@@ -24,33 +19,19 @@ class CrewRunner:
         self.writer = create_writer_agent()
 
     def kickoff_with_context(self, query: str, knowledge_context: str) -> str:
-        """
-        Run CrewAI with pre-retrieved context (deterministic RAG).
-
-        This bypasses the researcher's tool usage and passes documents
-        directly to the writer for synthesis.
-
-        Args:
-            query: User's question
-            knowledge_context: Pre-formatted KNOWLEDGE block from retrieval
-
-        Returns:
-            Synthesized response with citations
-        """
+        """Run CrewAI with pre-retrieved context, bypassing researcher tool usage."""
         logger.info(
             "Kickstarting Crew with pre-retrieved context",
             session_id=self.session_id,
             context_length=len(knowledge_context),
         )
 
-        # Render user prompt from template
         user_prompt = PromptRegistry.render(
             "user_prompt",
             query=query,
             context=knowledge_context,
         )
 
-        # Single task: Writer synthesizes from pre-retrieved context
         write_task = Task(
             description=user_prompt,
             expected_output=(
@@ -60,7 +41,6 @@ class CrewRunner:
             agent=self.writer,
         )
 
-        # Single-agent crew for synthesis only
         synthesis_crew = Crew(
             agents=[self.writer],
             tasks=[write_task],
@@ -72,12 +52,7 @@ class CrewRunner:
         return str(result)
 
     def kickoff(self, query: str) -> str:
-        """
-        Run the full CrewAI pipeline with tool usage.
-
-        Note: Requires a capable model (7B+) for reliable tool calling.
-        For smaller models, use kickoff_with_context instead.
-        """
+        """Run the full CrewAI pipeline with tool usage."""
         logger.info("Kickstarting Crew (full pipeline)", session_id=self.session_id)
 
         research_task = Task(

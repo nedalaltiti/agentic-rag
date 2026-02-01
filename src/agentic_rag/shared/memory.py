@@ -1,8 +1,4 @@
-"""Persistent conversation memory backed by PostgreSQL.
-
-Stores and retrieves session history as LlamaIndex ChatMessage objects,
-with optional session injection for transaction control.
-"""
+"""Persistent conversation memory backed by PostgreSQL."""
 
 from typing import Literal
 
@@ -30,10 +26,7 @@ class ConversationMemory:
         metadata: dict | None = None,
         session: AsyncSession | None = None,
     ):
-        """
-        Persists a message.
-        Supports external session injection for transaction grouping.
-        """
+        """Persist a message, optionally using an injected session."""
         if session:
             await self._save_internal(session, role, content, metadata)
         else:
@@ -53,10 +46,7 @@ class ConversationMemory:
         session.add(msg)
 
     async def get_history(self, limit: int = 10) -> list[ChatMessage]:
-        """
-        Retrieves recent messages as LlamaIndex ChatMessage objects.
-        Chronological order: oldest -> newest.
-        """
+        """Retrieve recent messages in chronological order."""
         try:
             async with AsyncSessionLocal() as session:
                 stmt = (
@@ -95,7 +85,7 @@ class ConversationMemory:
             return []
 
     async def clear(self):
-        """Clears memory for this session. Crucial for RAG evaluation."""
+        """Clear all messages for this session."""
         try:
             async with AsyncSessionLocal() as session:
                 stmt = delete(Conversation).where(Conversation.session_id == self.session_id)

@@ -1,12 +1,4 @@
-"""Phoenix prompt management with Jinja2 templates.
-
-Provides:
-- Local Jinja2 template rendering (always works)
-- Phoenix integration for prompt versioning and tagging
-- Dev/prod modes: dev uses local, prod can fetch from Phoenix
-
-Templates are stored in config/prompts/ as .j2 files.
-"""
+"""Phoenix prompt management with Jinja2 templates."""
 
 from __future__ import annotations
 
@@ -24,14 +16,7 @@ PROMPTS_DIR = Path(__file__).resolve().parent.parent / "prompts"
 
 
 class PromptRegistry:
-    """
-    Phase 7: Jinja2 prompt registry + Phoenix prompt sync/retrieve.
-
-    Behavior:
-    - render(): always works locally (jinja2)
-    - get_template(): in prod tries Phoenix tagged prompt; falls back to local
-    - sync_to_phoenix(): best-effort create prompt versions + tag them
-    """
+    """Jinja2 prompt registry with optional Phoenix prompt sync."""
 
     _env = Environment(loader=FileSystemLoader(PROMPTS_DIR), autoescape=False)
     _client = None
@@ -60,47 +45,19 @@ class PromptRegistry:
 
     @classmethod
     def render(cls, name: str, **kwargs: Any) -> str:
-        """
-        Render a local Jinja2 template by name.
-
-        Args:
-            name: Template name (without .j2 extension)
-            **kwargs: Variables to pass to the template
-
-        Returns:
-            Rendered template string
-        """
+        """Render a local Jinja2 template by name."""
         template = cls._env.get_template(f"{name}.j2")
         return template.render(**kwargs)
 
     @classmethod
     def get_raw_local(cls, name: str) -> str:
-        """
-        Return raw local template source (unrendered).
-
-        Args:
-            name: Template name (without .j2 extension)
-
-        Returns:
-            Raw template string
-        """
+        """Return raw local template source (unrendered)."""
         path = PROMPTS_DIR / f"{name}.j2"
         return path.read_text(encoding="utf-8")
 
     @classmethod
     def get_template(cls, name: str) -> str:
-        """
-        Return the prompt template string.
-
-        - dev: local template
-        - prod: try Phoenix tagged version; fallback local
-
-        Args:
-            name: Template name (without .j2 extension)
-
-        Returns:
-            Template string (raw, unrendered)
-        """
+        """Return template string; in prod tries Phoenix first, falls back to local."""
         if settings.ENVIRONMENT != "prod":
             return cls.get_raw_local(name)
 
@@ -109,7 +66,6 @@ class PromptRegistry:
             return cls.get_raw_local(name)
 
         try:
-            # Try tagged version for stability (e.g., "production")
             pv = client.prompts.get(prompt_identifier=name, tag=settings.PHOENIX_PROMPT_TAG)
             return str(pv.template)
         except Exception as e:
@@ -123,19 +79,7 @@ class PromptRegistry:
 
     @classmethod
     def sync_to_phoenix(cls, version_tag: str):
-        """
-        Best-effort sync: creates prompt versions and tags them.
-
-        - Creates a prompt version for every local .j2 file
-        - Tags the created version with:
-            - PHOENIX_PROMPT_TAG (development/production)
-            - version_tag (e.g., v1.0.0) as a custom tag
-
-        Non-blocking: failures never crash startup.
-
-        Args:
-            version_tag: Version tag to apply (e.g., "v1.0.0")
-        """
+        """Best-effort sync: create prompt versions in Phoenix and tag them."""
         if not settings.PHOENIX_PROMPT_SYNC:
             logger.info("Phoenix prompt sync disabled (PHOENIX_PROMPT_SYNC=false)")
             return

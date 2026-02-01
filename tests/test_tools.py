@@ -10,8 +10,6 @@ from agentic_rag.backend.crew.tools import (
 )
 from agentic_rag.shared.schemas import Citation
 
-# ── run_async_safely ────────────────────────────────────────────────
-
 
 class TestRunAsyncSafely:
     def test_returns_result(self):
@@ -20,9 +18,6 @@ class TestRunAsyncSafely:
 
         result = run_async_safely(async_fn)
         assert result == 42
-
-
-# ── DatabaseSearchTool ──────────────────────────────────────────────
 
 
 class TestDatabaseSearchTool:
@@ -40,9 +35,12 @@ class TestDatabaseSearchTool:
     @patch("agentic_rag.backend.crew.tools.format_citations")
     @patch("agentic_rag.backend.crew.tools.HybridRetriever")
     def test_with_results(self, mock_retriever_cls, mock_format):
-        mock_instance = MagicMock()
-        mock_instance.aretrieve = AsyncMock(return_value=["node1", "node2"])
-        mock_retriever_cls.return_value = mock_instance
+        mock_retriever = MagicMock()
+        mock_retriever.aretrieve = AsyncMock(return_value=["node1", "node2"])
+        mock_retriever_cls.return_value = mock_retriever
+
+        mock_reranker = MagicMock()
+        mock_reranker.rerank = AsyncMock(return_value=["node1", "node2"])
 
         cit = Citation(
             document_id=uuid.uuid4(),
@@ -56,15 +54,13 @@ class TestDatabaseSearchTool:
         mock_format.return_value = [cit]
 
         tool = DatabaseSearchTool()
-        tool._retriever = mock_instance
+        tool._retriever = mock_retriever
+        tool._reranker = mock_reranker
         result = tool._run("PDPL query")
 
         assert "Source 1" in result
         assert "test.md" in result
         assert "Sample content" in result
-
-
-# ── MemoryLookupTool ────────────────────────────────────────────────
 
 
 class TestMemoryLookupTool:

@@ -1,8 +1,4 @@
-"""CrewAI tools for vector search and conversation memory.
-
-Provides sync-safe wrappers around async retrieval and memory backends
-using an AnyIO-first bridge with asyncio.run fallback.
-"""
+"""CrewAI tools for vector search and conversation memory."""
 
 import asyncio
 
@@ -18,19 +14,8 @@ from agentic_rag.shared.memory import ConversationMemory
 logger = structlog.get_logger()
 
 
-# --- Sync Bridge Helper ---
-
-
 def run_async_safely(async_fn):
-    """
-    Execute an async function from within a synchronous CrewAI tool.
-
-    Handles being called from a standard thread (via asyncio.to_thread)
-    or an AnyIO worker thread.
-
-    Args:
-        async_fn: A zero-argument async function (not a coroutine object).
-    """
+    """Execute an async function from a sync CrewAI tool context."""
     try:
         import anyio
 
@@ -40,9 +25,6 @@ def run_async_safely(async_fn):
             return asyncio.run(async_fn())
     except ImportError:
         return asyncio.run(async_fn())
-
-
-# --- Tool 1: Vector Search ---
 
 
 class DatabaseSearchTool(BaseTool):
@@ -90,9 +72,6 @@ class DatabaseSearchTool(BaseTool):
         except Exception as e:
             logger.error("Search tool failed", error=str(e))
             return f"Error executing search: {str(e)}"
-
-
-# --- Tool 2: Memory Lookup ---
 
 
 class MemoryLookupTool(BaseTool):

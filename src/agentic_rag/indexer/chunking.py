@@ -1,12 +1,4 @@
-"""Heading-first contextual chunking with section metadata and TOC detection.
-
-Splits markdown by headings (##–######), builds hierarchical section paths,
-flags TOC/front-matter chunks, and applies sentence-splitting as a size cap.
-
-Supports two modes:
-- 'fast': Structured prefix only (no LLM calls)
-- 'llm': Structured prefix + LLM-generated context (slow, high quality)
-"""
+"""Heading-first contextual chunking with section metadata and TOC detection."""
 
 import asyncio
 import re
@@ -38,10 +30,6 @@ class ContextualChunker:
         self.llm = get_llm()
         self.embed_model = get_embedding_model()
         self._semaphore = asyncio.Semaphore(3)
-
-    # ------------------------------------------------------------------
-    # Heading-aware splitting
-    # ------------------------------------------------------------------
 
     @staticmethod
     def _split_by_headings(text: str) -> list[dict[str, Any]]:
@@ -103,10 +91,6 @@ class ContextualChunker:
 
         return sections
 
-    # ------------------------------------------------------------------
-    # TOC / front-matter detection
-    # ------------------------------------------------------------------
-
     @staticmethod
     def _detect_toc_or_frontmatter(
         sections: list[dict[str, Any]],
@@ -143,10 +127,6 @@ class ContextualChunker:
 
         return sections
 
-    # ------------------------------------------------------------------
-    # Main entry point
-    # ------------------------------------------------------------------
-
     async def process_document(
         self,
         text: str,
@@ -159,13 +139,9 @@ class ContextualChunker:
 
         Return format is unchanged from the original chunker.
         """
-        # 1. Split by headings
         sections = self._split_by_headings(text)
-
-        # 2. Detect TOC / front-matter
         sections = self._detect_toc_or_frontmatter(sections)
 
-        # 3. Build raw chunks with section metadata
         raw_chunks: list[dict[str, Any]] = []
         global_index = 0
 
@@ -207,7 +183,6 @@ class ContextualChunker:
             mode=mode,
         )
 
-        # 4. Process in batches (embed + metadata)
         all_processed: list[dict[str, Any]] = []
         batch_size = 20
 
@@ -218,10 +193,6 @@ class ContextualChunker:
             all_processed.extend(results)
 
         return all_processed
-
-    # ------------------------------------------------------------------
-    # Single-chunk processing
-    # ------------------------------------------------------------------
 
     async def _process_single_chunk(
         self,

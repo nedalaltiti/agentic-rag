@@ -1,7 +1,4 @@
-"""SQLAlchemy ORM models for documents, chunks, and conversations.
-
-Design Decision: ORM for CRUD, raw SQL for vector similarity queries.
-"""
+"""SQLAlchemy ORM models for documents, chunks, and conversations."""
 
 import uuid
 from datetime import datetime
