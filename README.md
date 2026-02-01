@@ -31,6 +31,15 @@ docker compose up -d
 curl http://localhost:8000/health
 ```
 
+> **Local Development (outside Docker):** The `.env.example` uses Docker service names 
+> (`postgres`, `ollama`, `phoenix`). If running locally without Docker, update these to 
+> `localhost` in your `.env` file:
+> ```
+> DATABASE_URL=postgresql+asyncpg://postgres:postgres@localhost:5432/ragdb
+> OLLAMA_BASE_URL=http://localhost:11434
+> PHOENIX_COLLECTOR_ENDPOINT=http://localhost:6006/v1/traces
+> ```
+
 ### Index documents
 
 Put PDFs in `data/raw/` then:
@@ -62,23 +71,55 @@ What I usually look at:
 
 ## Citation format
 
-Each response includes a Sources block derived from chunk metadata:
+Each response includes structured citations with complete source metadata. The backend returns an `AgentResponse` with a `citations` array containing:
 
-* `document_name`
-* `page_number` (when available)
-* `chunk_index`
-* `score`
-* short preview
-
-Example:
-
+**Citation Schema:**
+```json
+{
+  "document_id": "uuid",
+  "chunk_id": "uuid", 
+  "file_name": "document.pdf",
+  "page_number": 12,
+  "section_path": "Introduction > Overview",
+  "chunk_text": "Retrieved text snippet...",
+  "score": 0.92
+}
 ```
-…answer…
 
-Sources:
-1) Annual Report 2024.pdf — p.12 — chunk 3 — score 0.92
-2) Q4 Earnings.pdf — p.5 — chunk 1 — score 0.87
+**Fields:**
+- `document_id`: UUID of source document
+- `chunk_id`: UUID of specific chunk
+- `file_name`: Original filename
+- `page_number`: Page number (null if unavailable)
+- `section_path`: Hierarchical section location (e.g., "Chapter 1 > Section 1.2")
+- `chunk_text`: Actual retrieved text
+- `score`: Relevance score (0.0-1.0)
+
+**Example Response:**
+```json
+{
+  "answer": "The company's revenue grew by 25% in Q4...",
+  "citations": [
+    {
+      "document_id": "a1b2c3d4-...",
+      "chunk_id": "e5f6g7h8-...",
+      "file_name": "Annual Report 2024.pdf",
+      "page_number": 12,
+      "section_path": "Financial Results > Revenue",
+      "chunk_text": "Q4 revenue increased 25% year-over-year...",
+      "score": 0.92
+    }
+  ],
+  "trace_id": "trace-xyz",
+  "usage": {
+    "prompt_tokens": 120,
+    "completion_tokens": 85,
+    "total_tokens": 205
+  }
+}
 ```
+
+The agent's text response typically includes inline citations like: `"According to the Annual Report (p.12), revenue grew..."`
 
 ## Services
 
