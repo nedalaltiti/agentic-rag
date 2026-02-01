@@ -139,7 +139,7 @@ jobs:
 
       - name: Run tests
         env:
-          DATABASE_URL: postgresql://postgres:postgres@localhost:5432/agentic_rag_test
+          DATABASE_URL: postgresql+asyncpg://postgres:postgres@localhost:5432/agentic_rag_test
           OLLAMA_HOST: http://localhost:11434
           PHOENIX_HOST: http://localhost:6006
         run: pytest tests/ -v --cov=src/agentic_rag --cov-report=term-missing
