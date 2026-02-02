@@ -11,10 +11,13 @@ from opentelemetry.sdk.trace.export import BatchSpanProcessor
 
 from .config import settings
 
+_crewai_instrumentor_cls = None
 try:
     from openinference.instrumentation.crewai import CrewAIInstrumentor
+
+    _crewai_instrumentor_cls = CrewAIInstrumentor
 except ImportError:
-    CrewAIInstrumentor = None
+    pass
 
 logger = structlog.get_logger()
 _initialized = False
@@ -55,8 +58,8 @@ def setup_observability(app=None) -> None:
 
     LlamaIndexInstrumentor().instrument(tracer_provider=provider)
 
-    if CrewAIInstrumentor:
-        CrewAIInstrumentor().instrument(tracer_provider=provider)
+    if _crewai_instrumentor_cls is not None:
+        _crewai_instrumentor_cls().instrument(tracer_provider=provider)
     else:
         logger.warning(
             "CrewAI instrumentation missing. Traces for agents will be incomplete.",
