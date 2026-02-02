@@ -37,7 +37,8 @@ dependencies = [
     "llama-index-readers-docling>=0.4.0,<0.5.0",
     "docling>=2.70.0,<3.0.0",
     "crewai>=1.9.0,<2.0.0",
-    "litellm>=1.75.0,<2.0.0",  # Required by CrewAI LLM class
+    "litellm>=1.75.0,<2.0.0",
+    "apscheduler>=3.10.0,<4.0.0",
     "ollama>=0.6.0,<1.0.0",
 
     # --- Observability ---
@@ -80,6 +81,9 @@ package-dir = { "" = "src" }
 
 [tool.setuptools.packages.find]
 where = ["src"]
+
+[tool.setuptools.package-data]
+agentic_rag = ["prompts/*.j2"]
 
 [tool.ruff]
 line-length = 100

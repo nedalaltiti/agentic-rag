@@ -20,6 +20,7 @@ def get_llm() -> Ollama:
         base_url=settings.OLLAMA_BASE_URL,
         request_timeout=300.0,
         temperature=0.1,
+        context_window=8192,
     )
 
 
@@ -31,6 +32,7 @@ def get_eval_llm() -> Ollama:
         base_url=settings.OLLAMA_BASE_URL,
         request_timeout=600.0,
         temperature=0.0,
+        context_window=8192,
     )
 
 

@@ -68,6 +68,8 @@ services:
     container_name: backend
     ports:
       - "8000:8000"
+    volumes:
+      - ./data:/app/data
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ragdb
       OLLAMA_BASE_URL: http://ollama:11434
