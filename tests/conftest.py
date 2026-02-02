@@ -5,7 +5,7 @@ import uuid
 import pytest
 from llama_index.core.schema import NodeWithScore, TextNode
 
-from agentic_rag.shared.schemas import Citation
+from agentic_rag.core.schemas import Citation
 
 
 def make_node_with_score(

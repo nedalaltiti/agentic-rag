@@ -1,10 +1,10 @@
-"""Tests for agentic_rag.shared.citations.format_citations."""
+"""Tests for agentic_rag.core.citations.format_citations."""
 
 import uuid
 
 import pytest
 
-from agentic_rag.shared.citations import format_citations
+from agentic_rag.core.citations import format_citations
 from tests.conftest import make_node_with_score
 
 

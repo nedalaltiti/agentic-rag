@@ -15,8 +15,8 @@ from typing import Any
 import structlog
 from sqlalchemy import text
 
-from agentic_rag.shared.database import AsyncSessionLocal
-from agentic_rag.shared.llm_factory import get_llm
+from agentic_rag.core.database import AsyncSessionLocal
+from agentic_rag.core.llm_factory import get_llm
 
 logger = structlog.get_logger()
 

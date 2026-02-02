@@ -8,9 +8,9 @@ import time
 import structlog
 from fastapi import APIRouter
 
-from agentic_rag.shared.config import settings
-from agentic_rag.shared.health import check_all_services, get_overall_status
-from agentic_rag.shared.schemas import ModelInfo, ModelsListResponse
+from agentic_rag.core.config import settings
+from agentic_rag.core.health import check_all_services, get_overall_status
+from agentic_rag.core.schemas import ModelInfo, ModelsListResponse
 
 logger = structlog.get_logger()
 
@@ -45,12 +45,12 @@ async def list_models() -> ModelsListResponse:
     return ModelsListResponse(
         data=[
             ModelInfo(
-                id=settings.MODEL_ID,
+                id=settings.LLM_MODEL,
                 created=created_at,
                 owned_by="agentic-rag",
             ),
             ModelInfo(
-                id=settings.MODEL_ID_FAST,
+                id=settings.EMBEDDING_MODEL,
                 created=created_at,
                 owned_by="agentic-rag",
             ),

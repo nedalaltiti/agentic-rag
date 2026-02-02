@@ -8,8 +8,8 @@ from pydantic import Field, PrivateAttr
 
 from agentic_rag.backend.rag.reranker import LLMReranker
 from agentic_rag.backend.rag.retriever import HybridRetriever
-from agentic_rag.shared.citations import format_citations
-from agentic_rag.shared.memory import ConversationMemory
+from agentic_rag.core.citations import format_citations
+from agentic_rag.core.memory import ConversationMemory
 
 logger = structlog.get_logger()
 

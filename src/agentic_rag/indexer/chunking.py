@@ -7,9 +7,9 @@ from typing import Any, Literal
 import structlog
 from llama_index.core.node_parser import SentenceSplitter
 
-from agentic_rag.shared.config import settings
-from agentic_rag.shared.llm_factory import get_embedding_model, get_llm
-from agentic_rag.shared.prompts import PromptRegistry
+from agentic_rag.core.config import settings
+from agentic_rag.core.llm_factory import get_embedding_model, get_llm
+from agentic_rag.core.prompts import PromptRegistry
 
 logger = structlog.get_logger()
 

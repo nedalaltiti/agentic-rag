@@ -3,7 +3,7 @@
 import structlog
 from crewai import Crew, Process, Task
 
-from agentic_rag.shared.prompts import PromptRegistry
+from agentic_rag.core.prompts import PromptRegistry
 
 from .agents import create_researcher_agent, create_writer_agent
 

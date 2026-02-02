@@ -5,8 +5,8 @@ Defines researcher and writer agents with prompts from Phoenix.
 
 from crewai import LLM, Agent
 
-from agentic_rag.shared.config import settings
-from agentic_rag.shared.prompts import PromptRegistry
+from agentic_rag.core.config import settings
+from agentic_rag.core.prompts import PromptRegistry
 
 from .tools import DatabaseSearchTool, MemoryLookupTool
 

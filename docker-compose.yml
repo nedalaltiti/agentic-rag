@@ -94,6 +94,7 @@ services:
     environment:
       OPENAI_API_BASE_URL: http://backend:8000/v1
       OPENAI_API_KEY: "dummy"
+      ENABLE_OLLAMA_API: "false"
       ENABLE_PERSISTENT_CONFIG: "false"
     volumes:
       - openwebui_data:/app/backend/data

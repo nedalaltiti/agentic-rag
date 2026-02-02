@@ -8,7 +8,7 @@ from typing import Any
 import structlog
 from jinja2 import Environment, FileSystemLoader
 
-from agentic_rag.shared.config import settings
+from agentic_rag.core.config import settings
 
 logger = structlog.get_logger()
 

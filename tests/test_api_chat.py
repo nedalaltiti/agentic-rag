@@ -15,7 +15,7 @@ from agentic_rag.backend.api.v1.chat import (
     _should_use_agent_mode,
     router,
 )
-from agentic_rag.shared.schemas import OpenAIChatMessage
+from agentic_rag.core.schemas import OpenAIChatMessage
 
 
 class TestIsConversational:

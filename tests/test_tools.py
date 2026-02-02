@@ -8,7 +8,7 @@ from agentic_rag.backend.crew.tools import (
     MemoryLookupTool,
     run_async_safely,
 )
-from agentic_rag.shared.schemas import Citation
+from agentic_rag.core.schemas import Citation
 
 
 class TestRunAsyncSafely:

@@ -12,11 +12,11 @@ import structlog
 
 from agentic_rag.backend.rag.reranker import LLMReranker
 from agentic_rag.backend.rag.retriever import HybridRetriever
-from agentic_rag.shared.citations import format_citations
-from agentic_rag.shared.config import settings
-from agentic_rag.shared.llm_factory import get_embedding_model, get_eval_llm, get_llm
-from agentic_rag.shared.prompts import PromptRegistry
-from agentic_rag.shared.schemas import Citation
+from agentic_rag.core.citations import format_citations
+from agentic_rag.core.config import settings
+from agentic_rag.core.llm_factory import get_embedding_model, get_eval_llm, get_llm
+from agentic_rag.core.prompts import PromptRegistry
+from agentic_rag.core.schemas import Citation
 
 logger = structlog.get_logger()
 

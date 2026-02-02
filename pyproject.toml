@@ -83,7 +83,7 @@ package-dir = { "" = "src" }
 where = ["src"]
 
 [tool.setuptools.package-data]
-agentic_rag = ["prompts/*.j2"]
+agentic_rag = ["prompts/*.j2", "prompts/*.txt"]
 
 [tool.ruff]
 line-length = 100
@@ -98,6 +98,17 @@ python_version = "3.11"
 disallow_untyped_defs = false
 warn_return_any = true
 warn_unused_configs = true
+
+[[tool.mypy.overrides]]
+module = [
+    "pgvector.*",
+    "openinference.*",
+    "ragas.*",
+    "datasets",
+    "pandas",
+]
+ignore_missing_imports = true
+follow_untyped_imports = true
 
 [tool.pytest.ini_options]
 addopts = "-q"

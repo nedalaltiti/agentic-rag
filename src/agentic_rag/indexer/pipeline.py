@@ -11,11 +11,11 @@ import structlog
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from sqlalchemy import select
 
+from agentic_rag.core.database import AsyncSessionLocal
+from agentic_rag.core.models import Chunk, Document
+from agentic_rag.core.observability import setup_observability
 from agentic_rag.indexer.chunking import ContextualChunker
 from agentic_rag.indexer.parser import SUPPORTED_EXTENSIONS, DocumentParser
-from agentic_rag.shared.database import AsyncSessionLocal
-from agentic_rag.shared.models import Chunk, Document
-from agentic_rag.shared.observability import setup_observability
 
 logger = structlog.get_logger()
 

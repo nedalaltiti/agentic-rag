@@ -14,12 +14,12 @@ from fastapi.responses import StreamingResponse
 
 from agentic_rag.backend.rag.reranker import LLMReranker
 from agentic_rag.backend.rag.retriever import HybridRetriever
-from agentic_rag.shared.citations import format_citations
-from agentic_rag.shared.config import settings
-from agentic_rag.shared.llm_factory import get_llm
-from agentic_rag.shared.memory import ConversationMemory
-from agentic_rag.shared.prompts import PromptRegistry
-from agentic_rag.shared.schemas import (
+from agentic_rag.core.citations import format_citations
+from agentic_rag.core.config import settings
+from agentic_rag.core.llm_factory import ollama_chat_stream, ollama_chat_with_thinking
+from agentic_rag.core.memory import ConversationMemory
+from agentic_rag.core.prompts import PromptRegistry
+from agentic_rag.core.schemas import (
     Citation,
     OpenAIChatChoice,
     OpenAIChatMessage,
@@ -30,10 +30,17 @@ from agentic_rag.shared.schemas import (
     OpenAIChatStreamDelta,
     TokenUsage,
 )
+from agentic_rag.core.scope_gate import ScopeGate
 
 logger = structlog.get_logger()
 
 router = APIRouter(tags=["chat"])
+
+SCOPE_REFUSAL = (
+    "I specialize in PDPL and data protection topics only. "
+    "I'm not able to help with that question. "
+    "Feel free to ask me anything about Saudi Arabia's Personal Data Protection Law!"
+)
 
 AGENT_MODE_KEYWORDS = {
     "compare",
@@ -117,22 +124,25 @@ def _is_conversational(query: str) -> bool:
 
 async def _conversational_response(query: str) -> str:
     """Quick LLM response for greetings/thanks."""
-    app_name = settings.APP_NAME
     system_prompt = (
-        f"You are a friendly {app_name} assistant. "
-        "Respond naturally and briefly to the user's message. "
-        f"Always end by offering help with {app_name} topics. "
+        "You are a friendly PDPL (Personal Data Protection Law) compliance assistant "
+        "for Saudi Arabia. Respond naturally and briefly to the user's message. "
+        "Always end by offering help with PDPL and data protection topics. "
         "Keep responses to 1-2 sentences max. Be warm but professional. No emojis."
     )
 
-    llm = get_llm()
-    prompt = f"/no_think\n{system_prompt}\n\nUser: {query}\nAssistant:"
-
     try:
-        response = await llm.acomplete(prompt)
-        return str(response.text).strip()
+        _, content = await ollama_chat_with_thinking(
+            system_prompt=system_prompt,
+            user_message=query,
+            think=False,
+        )
+        return content.strip()
     except Exception:
-        return f"I'm here to help with {app_name} matters. What would you like to know?"
+        return (
+            "Welcome! I'm here to help with Saudi Arabia's Personal Data Protection Law (PDPL). "
+            "What would you like to know?"
+        )
 
 
 def _is_openwebui_internal_request(query: str) -> tuple[bool, str]:
@@ -145,9 +155,10 @@ def _is_openwebui_internal_request(query: str) -> tuple[bool, str]:
 
     if "### task:" in query_lower and "follow-up questions" in query_lower:
         return True, (
-            '{"questions": ["What topics can you help me with?", '
-            '"How does the knowledge base work?", '
-            '"What documents are available?"]}'
+            '{"questions": ['
+            '"What are the key obligations for data controllers under PDPL?", '
+            '"How does the PDPL handle cross-border data transfers?", '
+            '"What are the penalties for non-compliance with PDPL?"]}'
         )
 
     if "### task:" in query_lower and ("tags" in query_lower or "classify" in query_lower):
@@ -258,25 +269,29 @@ async def _fast_rag_response(
     query: str,
     citations: list[Citation],
     history: list | None = None,
-    think: bool = True,
 ) -> str:
     """Single LLM call with retrieved context (default path)."""
     context = _format_context_for_llm(citations)
     history_text = _format_history(history or [])
 
-    prompt = PromptRegistry.render(
+    system_prompt = PromptRegistry.render("system_prompt")
+    user_prompt = PromptRegistry.render(
         "user_prompt",
         query=query,
         context=context,
         history=history_text,
     )
 
-    if not think:
-        prompt = "/no_think\n" + prompt
+    thinking, content = await ollama_chat_with_thinking(
+        system_prompt=system_prompt,
+        user_message=user_prompt,
+        think=True,
+    )
 
-    llm = get_llm()
-    response = await llm.acomplete(prompt)
-    answer = str(response.text).strip()
+    answer = ""
+    if thinking:
+        answer = f"<think>\n{thinking}\n</think>\n\n"
+    answer += content.strip()
     answer += _format_sources_section(citations)
 
     return answer
@@ -305,7 +320,6 @@ async def _process_query(
     query: str,
     session_id: str,
     use_agent_mode: bool = False,
-    think: bool = True,
 ) -> tuple[str, list[Citation]]:
     """Route query through internal-request check, conversational check, or RAG pipeline."""
     is_internal, internal_response = _is_openwebui_internal_request(query)
@@ -323,6 +337,16 @@ async def _process_query(
         await memory.add_message("assistant", answer)
         return answer, []
 
+    # Semantic scope gate
+    try:
+        in_scope, _ = await ScopeGate.is_in_scope(query)
+    except Exception:
+        in_scope = True
+    if not in_scope:
+        logger.info("Out-of-scope query refused (non-stream)", session_id=session_id)
+        await memory.add_message("assistant", SCOPE_REFUSAL)
+        return SCOPE_REFUSAL, []
+
     citations = await _retrieve_and_rerank(query, use_reranker=use_agent_mode)
 
     try:
@@ -330,9 +354,9 @@ async def _process_query(
             logger.info("Using Agent Mode (CrewAI)", session_id=session_id)
             answer = await _agent_mode_response(query, session_id, citations)
         else:
-            logger.info("Using Fast RAG Mode", session_id=session_id, think=think)
+            logger.info("Using Fast RAG Mode", session_id=session_id)
             history = await memory.get_history(limit=5)
-            answer = await _fast_rag_response(query, citations, history=history, think=think)
+            answer = await _fast_rag_response(query, citations, history=history)
     except Exception:
         logger.exception("Response generation failed", session_id=session_id)
         raise HTTPException(status_code=500, detail="Failed to generate response") from None
@@ -349,16 +373,15 @@ async def _stream_with_thinking(
     session_id: str,
     use_agent_mode: bool,
     created_at: int,
-    think: bool = True,
 ) -> AsyncGenerator[str, None]:
-    """Stream the response as SSE chunks."""
+    """Stream the response as SSE chunks with real-time thinking."""
 
-    def make_chunk(
-        content: str,
+    def sse(
+        content: str = "",
         role: Literal["assistant"] | None = None,
         finish: str | None = None,
-    ):
-        return OpenAIChatStreamChunk(
+    ) -> str:
+        chunk = OpenAIChatStreamChunk(
             id=request_id,
             created=created_at,
             model=model,
@@ -367,38 +390,112 @@ async def _stream_with_thinking(
                     index=0,
                     delta=OpenAIChatStreamDelta(
                         role=role,
-                        content=content if content else None,
+                        content=content or None,
                     ),
                     finish_reason=finish,
                 )
             ],
         )
+        return f"data: {chunk.model_dump_json()}\n\n"
 
-    yield f"data: {make_chunk('', role='assistant').model_dump_json()}\n\n"
+    def sse_stop() -> str:
+        return sse(finish="stop") + "data: [DONE]\n\n"
 
-    try:
-        answer, citations = await _process_query(query, session_id, use_agent_mode, think=think)
-    except Exception:
-        error_msg = "Sorry, I encountered an error. Please try again."
-        yield f"data: {make_chunk(error_msg).model_dump_json()}\n\n"
-        yield f"data: {make_chunk('', finish='stop').model_dump_json()}\n\n"
-        yield "data: [DONE]\n\n"
+    yield sse(role="assistant")
+
+    # Internal OpenWebUI requests (title gen, follow-ups, tags)
+    is_internal, internal_response = _is_openwebui_internal_request(query)
+    if is_internal:
+        yield sse(internal_response) + sse_stop()
         return
 
-    words = answer.split()
-    for i in range(0, len(words), 4):  # 4 words at a time
-        chunk_text = " ".join(words[i : i + 4])
-        if i > 0:
-            chunk_text = " " + chunk_text
+    memory = ConversationMemory(session_id)
+    await memory.add_message("user", query)
 
-        yield f"data: {make_chunk(chunk_text).model_dump_json()}\n\n"
-        await asyncio.sleep(0.02)
+    # Conversational (greetings, thanks)
+    if _is_conversational(query):
+        answer = await _conversational_response(query)
+        await memory.add_message("assistant", answer)
+        yield sse(answer) + sse_stop()
+        return
 
-    yield f"data: {make_chunk('', finish='stop').model_dump_json()}\n\n"
+    # Scope gate: refuse off-topic before retrieval
+    try:
+        in_scope, _ = await ScopeGate.is_in_scope(query)
+    except Exception:
+        in_scope = True
+
+    if not in_scope:
+        await memory.add_message("assistant", SCOPE_REFUSAL)
+        yield sse(SCOPE_REFUSAL) + sse_stop()
+        return
+
+    # Agent mode: non-streaming fallback
+    if use_agent_mode:
+        try:
+            citations = await _retrieve_and_rerank(query, use_reranker=True)
+            answer = await _agent_mode_response(query, session_id, citations)
+            await memory.add_message("assistant", answer)
+            for idx, line in enumerate(answer.split("\n")):
+                yield sse(line if idx == 0 else "\n" + line)
+        except Exception:
+            yield sse("Sorry, I encountered an error.")
+        yield sse_stop()
+        return
+
+    # --- RAG mode: real-time streaming from Ollama with thinking ---
+
+    yield sse("<think>Searching documents...")
+
+    try:
+        citations = await _retrieve_and_rerank(query, use_reranker=False)
+    except Exception:
+        logger.exception("Retrieval failed", session_id=session_id)
+        citations = []
+
+    context = _format_context_for_llm(citations)
+    history_text = _format_history(await memory.get_history(limit=5))
+
+    system_prompt = PromptRegistry.render("system_prompt")
+    user_prompt = PromptRegistry.render(
+        "user_prompt", query=query, context=context, history=history_text
+    )
+
+    full_answer = ""
+    in_thinking = True  # <think> already opened above
+
+    try:
+        async for chunk in ollama_chat_stream(system_prompt, user_prompt, think=True):
+            if chunk.get("thinking"):
+                yield sse(chunk["thinking"])
+
+            if chunk.get("content"):
+                if in_thinking:
+                    yield sse("</think>")
+                    in_thinking = False
+                full_answer += chunk["content"]
+                yield sse(chunk["content"])
+
+            if chunk.get("done"):
+                if in_thinking:
+                    yield sse("</think>")
+                break
+
+        sources = _format_sources_section(citations)
+        if sources:
+            yield sse(sources)
+            full_answer += sources
+
+        await memory.add_message("assistant", full_answer)
+    except Exception:
+        logger.exception("Streaming failed", session_id=session_id)
+        yield sse("Sorry, I encountered an error. Please try again.")
+
+    yield sse(finish="stop")
 
     if citations:
-        citations_data = [c.model_dump(mode="json") for c in citations]
-        yield f"data: {json.dumps({'citations': citations_data})}\n\n"
+        data = [c.model_dump(mode="json") for c in citations]
+        yield f"data: {json.dumps({'citations': data})}\n\n"
 
     yield "data: [DONE]\n\n"
 
@@ -419,8 +516,7 @@ async def chat_completions(
 
     query = user_messages[-1].content
     session_id = _get_session_id(request.messages, x_session_id)
-    model = request.model or settings.MODEL_ID
-    think = model != settings.MODEL_ID_FAST
+    model = request.model or settings.LLM_MODEL
 
     use_agent_mode = _should_use_agent_mode(query, x_agent_mode)
 
@@ -430,7 +526,6 @@ async def chat_completions(
         stream=request.stream,
         session_id=session_id,
         agent_mode=use_agent_mode,
-        think=think,
     )
 
     request_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
@@ -438,14 +533,12 @@ async def chat_completions(
 
     if request.stream:
         return StreamingResponse(
-            _stream_with_thinking(
-                request_id, model, query, session_id, use_agent_mode, created_at, think=think
-            ),
+            _stream_with_thinking(request_id, model, query, session_id, use_agent_mode, created_at),
             media_type="text/event-stream",
         )
 
     try:
-        answer, citations = await _process_query(query, session_id, use_agent_mode, think=think)
+        answer, citations = await _process_query(query, session_id, use_agent_mode)
     except HTTPException:
         raise
     except Exception:

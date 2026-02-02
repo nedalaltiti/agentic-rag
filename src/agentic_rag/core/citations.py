@@ -5,7 +5,7 @@ import uuid
 import structlog
 from llama_index.core.schema import NodeWithScore
 
-from agentic_rag.shared.schemas import Citation
+from agentic_rag.core.schemas import Citation
 
 logger = structlog.get_logger()
 

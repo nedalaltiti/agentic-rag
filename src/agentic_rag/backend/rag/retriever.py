@@ -8,10 +8,10 @@ from llama_index.core.schema import NodeWithScore, QueryBundle, TextNode
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import Integer, bindparam, text
 
-from agentic_rag.shared.config import settings
-from agentic_rag.shared.constants import EMBEDDING_DIMENSION
-from agentic_rag.shared.database import AsyncSessionLocal
-from agentic_rag.shared.llm_factory import get_embedding_model
+from agentic_rag.core.config import settings
+from agentic_rag.core.constants import EMBEDDING_DIMENSION
+from agentic_rag.core.database import AsyncSessionLocal
+from agentic_rag.core.llm_factory import get_embedding_model
 
 logger = structlog.get_logger()
 

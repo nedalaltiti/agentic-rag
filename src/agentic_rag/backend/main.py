@@ -7,10 +7,10 @@ from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 
 from agentic_rag.backend.api.v1 import chat, health
-from agentic_rag.shared.config import settings
-from agentic_rag.shared.logging import setup_logging
-from agentic_rag.shared.observability import setup_observability
-from agentic_rag.shared.prompts import PromptRegistry
+from agentic_rag.core.config import settings
+from agentic_rag.core.logging import setup_logging
+from agentic_rag.core.observability import setup_observability
+from agentic_rag.core.prompts import PromptRegistry
 
 
 @asynccontextmanager

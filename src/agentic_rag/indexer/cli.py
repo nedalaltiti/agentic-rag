@@ -9,8 +9,8 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from agentic_rag.core.llm_factory import configure_global_settings
 from agentic_rag.indexer.pipeline import IngestionPipeline
-from agentic_rag.shared.llm_factory import configure_global_settings
 
 app = typer.Typer()
 console = Console()
