@@ -127,6 +127,16 @@ class ContextualChunker:
 
         return sections
 
+    @staticmethod
+    def _estimate_page_number(
+        char_offset: int, total_chars: int, page_count: int | None
+    ) -> int | None:
+        """Estimate page number from character offset when page count is known."""
+        if not page_count or total_chars == 0:
+            return None
+        chars_per_page = total_chars / page_count
+        return min(int(char_offset / chars_per_page) + 1, page_count)
+
     async def process_document(
         self,
         text: str,
@@ -141,9 +151,12 @@ class ContextualChunker:
         """
         sections = self._split_by_headings(text)
         sections = self._detect_toc_or_frontmatter(sections)
+        total_chars = len(text)
+        page_count = metadata.get("page_count")
 
         raw_chunks: list[dict[str, Any]] = []
         global_index = 0
+        char_offset = 0
 
         for section in sections:
             body = section["body"]
@@ -153,16 +166,15 @@ class ContextualChunker:
             is_toc = section.get("is_toc", False)
             is_fm = section.get("is_front_matter", False)
 
-            # Cap TOC/front-matter content by lines to reduce noise
             if is_toc or is_fm:
                 lines = body.splitlines()
                 if len(lines) > _FRONTMATTER_MAX_LINES:
                     body = "\n".join(lines[:_FRONTMATTER_MAX_LINES])
 
-            # Sub-split large sections using SentenceSplitter
             sub_nodes = self.splitter.split_text(body)
 
             for sub_idx, sub_text in enumerate(sub_nodes):
+                estimated_page = self._estimate_page_number(char_offset, total_chars, page_count)
                 raw_chunks.append(
                     {
                         "text": sub_text,
@@ -172,8 +184,10 @@ class ContextualChunker:
                         "is_front_matter": is_fm,
                         "chunk_index_in_section": sub_idx,
                         "chunk_index_global": global_index,
+                        "page_number": estimated_page,
                     }
                 )
+                char_offset += len(sub_text)
                 global_index += 1
 
         logger.info(
@@ -222,7 +236,7 @@ class ContextualChunker:
         rich_metadata = {
             **metadata,
             "source": "docling",
-            "page_number": None,
+            "page_number": section_info.get("page_number"),
             "section_title": section_info["section_title"] or None,
             "section_path": section_path or None,
             "is_toc": section_info["is_toc"],

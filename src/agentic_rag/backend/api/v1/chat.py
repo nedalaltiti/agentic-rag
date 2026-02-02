@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import json
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -65,6 +66,9 @@ def _get_session_id(
 
 def _should_use_agent_mode(query: str, agent_header: str | None) -> bool:
     """Check header and keyword triggers; skip for OpenWebUI internal requests."""
+    if not settings.USE_CREWAI:
+        return False
+
     if query.strip().startswith("### Task:") or query.strip().startswith("###"):
         return False
 
@@ -113,10 +117,13 @@ def _is_conversational(query: str) -> bool:
 
 async def _conversational_response(query: str) -> str:
     """Quick LLM response for greetings/thanks — no RAG needed."""
-    system_prompt = """You are a friendly PDPL (Personal Data Protection Law) compliance assistant.
-Respond naturally and briefly to the user's message.
-Always end by offering help with PDPL/data protection topics.
-Keep responses to 1-2 sentences max. Be warm but professional. No emojis."""
+    app_name = settings.APP_NAME
+    system_prompt = (
+        f"You are a friendly {app_name} assistant. "
+        "Respond naturally and briefly to the user's message. "
+        f"Always end by offering help with {app_name} topics. "
+        "Keep responses to 1-2 sentences max. Be warm but professional. No emojis."
+    )
 
     llm = get_llm()
     prompt = f"{system_prompt}\n\nUser: {query}\nAssistant:"
@@ -125,28 +132,26 @@ Keep responses to 1-2 sentences max. Be warm but professional. No emojis."""
         response = await llm.acomplete(prompt)
         return str(response.text).strip()
     except Exception:
-        return (
-            "I'm here to help with PDPL compliance matters. "
-            "What would you like to know about data protection?"
-        )
+        return f"I'm here to help with {app_name} matters. What would you like to know?"
 
 
 def _is_openwebui_internal_request(query: str) -> tuple[bool, str]:
     """Detect and short-circuit OpenWebUI internal requests (title gen, follow-ups, tags)."""
     query_lower = query.strip().lower()
+    app_name = settings.APP_NAME
 
     if "### task:" in query_lower and "title" in query_lower and "emoji" in query_lower:
-        return True, '{"title": "PDPL Compliance Chat"}'
+        return True, f'{{"title": "{app_name} Chat"}}'
 
     if "### task:" in query_lower and "follow-up questions" in query_lower:
         return True, (
-            '{"questions": ["What are the key principles of PDPL?", '
-            '"How does PDPL affect data processing?", '
-            '"What are PDPL compliance requirements?"]}'
+            '{"questions": ["What topics can you help me with?", '
+            '"How does the knowledge base work?", '
+            '"What documents are available?"]}'
         )
 
     if "### task:" in query_lower and ("tags" in query_lower or "classify" in query_lower):
-        return True, '{"tags": ["pdpl", "compliance", "data-protection"]}'
+        return True, '{"tags": ["rag", "knowledge-base", "assistant"]}'
 
     if query.strip().startswith("### Task:") or query.strip().startswith("###Task:"):
         return True, "OK"
@@ -191,7 +196,7 @@ async def _retrieve_and_rerank(
         if use_reranker and nodes:
             reranker = LLMReranker()
             reranker._semaphore = asyncio.Semaphore(1)
-            nodes = await reranker.rerank(query, nodes[:10])
+            nodes = await reranker.rerank(query, nodes[:5])
         else:
             nodes = nodes[:5]
 
@@ -237,17 +242,32 @@ def _format_sources_section(citations: list[Citation]) -> str:
     return "\n\n---\n\n**Sources:**\n\n" + "\n".join(sources)
 
 
+def _format_history(messages: list) -> str:
+    """Format conversation history for prompt injection."""
+    if not messages:
+        return ""
+    lines = []
+    for msg in messages:
+        role = msg.role.value.capitalize() if hasattr(msg.role, "value") else str(msg.role)
+        content = msg.content[:500] if msg.content else ""
+        lines.append(f"{role}: {content}")
+    return "\n".join(lines)
+
+
 async def _fast_rag_response(
     query: str,
     citations: list[Citation],
+    history: list | None = None,
 ) -> str:
     """Single LLM call with retrieved context (default path)."""
     context = _format_context_for_llm(citations)
+    history_text = _format_history(history or [])
 
     prompt = PromptRegistry.render(
         "user_prompt",
         query=query,
         context=context,
+        history=history_text,
     )
 
     llm = get_llm()
@@ -306,7 +326,8 @@ async def _process_query(
             answer = await _agent_mode_response(query, session_id, citations)
         else:
             logger.info("Using Fast RAG Mode", session_id=session_id)
-            answer = await _fast_rag_response(query, citations)
+            history = await memory.get_history(limit=5)
+            answer = await _fast_rag_response(query, citations, history=history)
     except Exception:
         logger.exception("Response generation failed", session_id=session_id)
         raise HTTPException(status_code=500, detail="Failed to generate response") from None
@@ -368,6 +389,11 @@ async def _stream_with_thinking(
         await asyncio.sleep(0.02)
 
     yield f"data: {make_chunk('', finish='stop').model_dump_json()}\n\n"
+
+    if citations:
+        citations_data = [c.model_dump(mode="json") for c in citations]
+        yield f"data: {json.dumps({'citations': citations_data})}\n\n"
+
     yield "data: [DONE]\n\n"
 
 
@@ -432,4 +458,5 @@ async def chat_completions(
             completion_tokens=len(answer.split()),
             total_tokens=len(query.split()) + len(answer.split()),
         ),
+        citations=citations,
     )

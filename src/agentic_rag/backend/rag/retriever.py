@@ -19,10 +19,7 @@ logger = structlog.get_logger()
 class HybridRetriever(BaseRetriever):
     """Custom Hybrid Retriever using parallel execution and type-safe vector binding."""
 
-    # RRF Tuning Constants
     RRF_K = 60
-    WEIGHT_VECTOR = 1.0
-    WEIGHT_KEYWORD = 1.0
 
     # Filter out TOC and front-matter chunks by default
     _FILTER_TOC_FM = """
@@ -75,8 +72,8 @@ class HybridRetriever(BaseRetriever):
                         "metadata": meta,
                     }
 
-        process_rows(vector_rows, weight=self.WEIGHT_VECTOR)
-        process_rows(keyword_rows, weight=self.WEIGHT_KEYWORD)
+        process_rows(vector_rows, weight=settings.RRF_WEIGHT_VECTOR)
+        process_rows(keyword_rows, weight=settings.RRF_WEIGHT_KEYWORD)
 
         sorted_ids = sorted(fused_scores.keys(), key=lambda x: fused_scores[x], reverse=True)
         final_ids = sorted_ids[: self.top_k]

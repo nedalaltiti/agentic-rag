@@ -13,7 +13,8 @@ import structlog
 from agentic_rag.backend.rag.reranker import LLMReranker
 from agentic_rag.backend.rag.retriever import HybridRetriever
 from agentic_rag.shared.citations import format_citations
-from agentic_rag.shared.llm_factory import get_embedding_model, get_llm
+from agentic_rag.shared.config import settings
+from agentic_rag.shared.llm_factory import get_embedding_model, get_eval_llm, get_llm
 from agentic_rag.shared.prompts import PromptRegistry
 from agentic_rag.shared.schemas import Citation
 
@@ -133,7 +134,9 @@ async def evaluate_rag_pipeline(
         faithfulness,
     )
 
-    evaluator_llm = LlamaIndexLLMWrapper(get_llm())
+    eval_llm = get_eval_llm()
+    logger.info("Evaluator model: %s", settings.EVAL_MODEL)
+    evaluator_llm = LlamaIndexLLMWrapper(eval_llm)
     evaluator_emb = LlamaIndexEmbeddingsWrapper(get_embedding_model())
 
     ds = Dataset.from_pandas(df)

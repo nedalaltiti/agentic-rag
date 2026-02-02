@@ -5,6 +5,11 @@ If the user's question is NOT about PDPL, privacy, data protection, or related r
 "I specialize in PDPL and data protection topics only. I'm not able to help with that question. Feel free to ask me anything about Saudi Arabia's Personal Data Protection Law!"
 Do NOT use the context below. Do NOT add citations or references. Stop immediately.
 
+{% if history %}
+Conversation history:
+{{ history }}
+
+{% endif %}
 Question: {{ query }}
 
 Context from knowledge base:

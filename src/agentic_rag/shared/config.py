@@ -36,7 +36,7 @@ class Settings(BaseSettings):
     PHOENIX_PROJECT_NAME: str = "agentic-rag-v1"
 
     # Prompt management controls
-    PHOENIX_PROMPT_SYNC: bool = False  # Set true in production
+    PHOENIX_PROMPT_SYNC: bool = True
     PHOENIX_PROMPT_TAG: str = "development"  # Use "production" in prod
 
     # LLM & Embedding (Ollama)
@@ -49,6 +49,11 @@ class Settings(BaseSettings):
     CHUNK_OVERLAP: int = 50
     TOP_K_RETRIEVAL: int = 10
     TOP_K_RERANK: int = 5
+    USE_CREWAI: bool = True
+    EVAL_MODEL: str = "prometheus2:7b"
+    RRF_WEIGHT_VECTOR: float = 1.0
+    RRF_WEIGHT_KEYWORD: float = 1.0
+    RERANKER_TIMEOUT: float = 30.0
 
     model_config = SettingsConfigDict(
         env_file=".env",

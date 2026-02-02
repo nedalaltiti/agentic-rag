@@ -38,12 +38,16 @@ class LLMReranker:
         if not nodes:
             return []
 
-        # Take more candidates than we need for better selection
-        candidates = nodes[: max(self.top_n * 4, 20)]
+        candidates = nodes[: self.top_n * 2]
         logger.info("Re-ranking candidates", count=len(candidates))
 
+        timeout = settings.RERANKER_TIMEOUT
         tasks = [self._score_node(query, n) for n in candidates]
-        scored_nodes = await asyncio.gather(*tasks)
+        try:
+            scored_nodes = await asyncio.wait_for(asyncio.gather(*tasks), timeout=timeout)
+        except TimeoutError:
+            logger.warning("Reranker timed out, returning original order", timeout=timeout)
+            return nodes[: self.top_n]
 
         # Sort by re-ranked score descending
         scored_nodes.sort(key=lambda x: x.score or 0.0, reverse=True)

@@ -44,6 +44,7 @@ dependencies = [
     "arize-phoenix>=12.33.0,<13.0.0",
     "arize-phoenix-client>=1.0.0,<2.0.0",
     "openinference-instrumentation-llama-index>=4.3.0,<5.0.0",
+    "openinference-instrumentation-crewai>=0.1.0",
     "opentelemetry-instrumentation-fastapi>=0.50b0",
     "openinference-semantic-conventions>=0.1.25,<1.0.0",
 

@@ -81,19 +81,24 @@ class IngestionPipeline:
                             )
                             continue
 
-                        # Parse
-                        markdown_text = await asyncio.to_thread(self.parser.parse, file_path)
+                        parse_result = await asyncio.to_thread(self.parser.parse, file_path)
 
-                        # Create Doc
                         new_doc = Document(
-                            file_name=file_path.name, file_path=str(file_path), file_hash=file_hash
+                            file_name=file_path.name,
+                            file_path=str(file_path),
+                            file_hash=file_hash,
+                            page_count=parse_result.page_count,
                         )
                         session.add(new_doc)
                         await session.flush()
 
-                        # Chunk
                         chunks_data = await self.chunker.process_document(
-                            markdown_text, metadata={"file_name": file_path.name}, mode=mode
+                            parse_result.text,
+                            metadata={
+                                "file_name": file_path.name,
+                                "page_count": parse_result.page_count,
+                            },
+                            mode=mode,
                         )
 
                         # Store Chunks

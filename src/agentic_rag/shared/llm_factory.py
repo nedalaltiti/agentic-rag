@@ -23,6 +23,17 @@ def get_llm() -> Ollama:
     )
 
 
+def get_eval_llm() -> Ollama:
+    """Return an Ollama LLM instance configured for evaluation (separate model)."""
+    logger.info("Using evaluator model", model=settings.EVAL_MODEL)
+    return Ollama(
+        model=settings.EVAL_MODEL,
+        base_url=settings.OLLAMA_BASE_URL,
+        request_timeout=600.0,
+        temperature=0.0,
+    )
+
+
 def get_embedding_model() -> OllamaEmbedding:
     """Return the configured Ollama Embedding instance."""
     return OllamaEmbedding(

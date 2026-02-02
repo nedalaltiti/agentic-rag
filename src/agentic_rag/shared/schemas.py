@@ -81,6 +81,7 @@ class OpenAIChatResponse(BaseModel):
     model: str
     choices: list[OpenAIChatChoice]
     usage: TokenUsage
+    citations: list[Citation] = Field(default_factory=list)
 
 
 class OpenAIChatStreamDelta(BaseModel):
