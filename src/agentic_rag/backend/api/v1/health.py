@@ -41,17 +41,16 @@ async def list_models() -> ModelsListResponse:
 
     OpenWebUI uses this to discover available models.
     """
-    # Return all models (chat, embedding, reranker) for discovery
     created_at = int(time.time())
     return ModelsListResponse(
         data=[
             ModelInfo(
-                id=settings.LLM_MODEL,
+                id=settings.MODEL_ID,
                 created=created_at,
                 owned_by="agentic-rag",
             ),
             ModelInfo(
-                id=settings.EMBEDDING_MODEL,
+                id=settings.MODEL_ID_FAST,
                 created=created_at,
                 owned_by="agentic-rag",
             ),

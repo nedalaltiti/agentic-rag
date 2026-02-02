@@ -16,11 +16,12 @@ Context from knowledge base:
 {{ context }}
 
 **If the question IS about PDPL / privacy / data protection:**
-Answer the question based on the context above.
+Answer the question using ONLY the context above. Do NOT use your training knowledge.
+Every claim must come from the provided context. If the context does not contain the answer, say "I could not find this information in the available documents."
 
 Requirements:
-- Add citation numbers [1], [2] after facts
+- Add citation numbers [1], [2] after facts referencing the source
 - Use clear paragraphs
 - Be concise but complete
 - End with 2 related questions the user might ask
-- If the information is not in the context, say so honestly
+- NEVER invent information not present in the context

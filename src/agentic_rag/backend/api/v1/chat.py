@@ -116,7 +116,7 @@ def _is_conversational(query: str) -> bool:
 
 
 async def _conversational_response(query: str) -> str:
-    """Quick LLM response for greetings/thanks — no RAG needed."""
+    """Quick LLM response for greetings/thanks."""
     app_name = settings.APP_NAME
     system_prompt = (
         f"You are a friendly {app_name} assistant. "
@@ -126,7 +126,7 @@ async def _conversational_response(query: str) -> str:
     )
 
     llm = get_llm()
-    prompt = f"{system_prompt}\n\nUser: {query}\nAssistant:"
+    prompt = f"/no_think\n{system_prompt}\n\nUser: {query}\nAssistant:"
 
     try:
         response = await llm.acomplete(prompt)
@@ -258,6 +258,7 @@ async def _fast_rag_response(
     query: str,
     citations: list[Citation],
     history: list | None = None,
+    think: bool = True,
 ) -> str:
     """Single LLM call with retrieved context (default path)."""
     context = _format_context_for_llm(citations)
@@ -269,6 +270,9 @@ async def _fast_rag_response(
         context=context,
         history=history_text,
     )
+
+    if not think:
+        prompt = "/no_think\n" + prompt
 
     llm = get_llm()
     response = await llm.acomplete(prompt)
@@ -301,6 +305,7 @@ async def _process_query(
     query: str,
     session_id: str,
     use_agent_mode: bool = False,
+    think: bool = True,
 ) -> tuple[str, list[Citation]]:
     """Route query through internal-request check, conversational check, or RAG pipeline."""
     is_internal, internal_response = _is_openwebui_internal_request(query)
@@ -325,9 +330,9 @@ async def _process_query(
             logger.info("Using Agent Mode (CrewAI)", session_id=session_id)
             answer = await _agent_mode_response(query, session_id, citations)
         else:
-            logger.info("Using Fast RAG Mode", session_id=session_id)
+            logger.info("Using Fast RAG Mode", session_id=session_id, think=think)
             history = await memory.get_history(limit=5)
-            answer = await _fast_rag_response(query, citations, history=history)
+            answer = await _fast_rag_response(query, citations, history=history, think=think)
     except Exception:
         logger.exception("Response generation failed", session_id=session_id)
         raise HTTPException(status_code=500, detail="Failed to generate response") from None
@@ -344,6 +349,7 @@ async def _stream_with_thinking(
     session_id: str,
     use_agent_mode: bool,
     created_at: int,
+    think: bool = True,
 ) -> AsyncGenerator[str, None]:
     """Stream the response as SSE chunks."""
 
@@ -371,7 +377,7 @@ async def _stream_with_thinking(
     yield f"data: {make_chunk('', role='assistant').model_dump_json()}\n\n"
 
     try:
-        answer, citations = await _process_query(query, session_id, use_agent_mode)
+        answer, citations = await _process_query(query, session_id, use_agent_mode, think=think)
     except Exception:
         error_msg = "Sorry, I encountered an error. Please try again."
         yield f"data: {make_chunk(error_msg).model_dump_json()}\n\n"
@@ -413,7 +419,8 @@ async def chat_completions(
 
     query = user_messages[-1].content
     session_id = _get_session_id(request.messages, x_session_id)
-    model = request.model or settings.LLM_MODEL
+    model = request.model or settings.MODEL_ID
+    think = model != settings.MODEL_ID_FAST
 
     use_agent_mode = _should_use_agent_mode(query, x_agent_mode)
 
@@ -423,6 +430,7 @@ async def chat_completions(
         stream=request.stream,
         session_id=session_id,
         agent_mode=use_agent_mode,
+        think=think,
     )
 
     request_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
@@ -430,12 +438,14 @@ async def chat_completions(
 
     if request.stream:
         return StreamingResponse(
-            _stream_with_thinking(request_id, model, query, session_id, use_agent_mode, created_at),
+            _stream_with_thinking(
+                request_id, model, query, session_id, use_agent_mode, created_at, think=think
+            ),
             media_type="text/event-stream",
         )
 
     try:
-        answer, citations = await _process_query(query, session_id, use_agent_mode)
+        answer, citations = await _process_query(query, session_id, use_agent_mode, think=think)
     except HTTPException:
         raise
     except Exception:

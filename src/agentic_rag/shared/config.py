@@ -44,6 +44,10 @@ class Settings(BaseSettings):
     LLM_MODEL: str = "qwen3:1.7b"
     EMBEDDING_MODEL: str = "qwen3-embedding:0.6b"
 
+    # Model IDs exposed via /v1/models (OpenWebUI discovery)
+    MODEL_ID: str = "agentic-rag"
+    MODEL_ID_FAST: str = "agentic-rag-fast"
+
     # Contextual RAG Settings
     CHUNK_SIZE: int = 512
     CHUNK_OVERLAP: int = 50
