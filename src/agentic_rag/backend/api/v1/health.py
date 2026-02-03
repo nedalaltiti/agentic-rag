@@ -48,11 +48,6 @@ async def list_models() -> ModelsListResponse:
                 id=settings.LLM_MODEL,
                 created=created_at,
                 owned_by="agentic-rag",
-            ),
-            ModelInfo(
-                id=settings.EMBEDDING_MODEL,
-                created=created_at,
-                owned_by="agentic-rag",
-            ),
+            )
         ]
     )

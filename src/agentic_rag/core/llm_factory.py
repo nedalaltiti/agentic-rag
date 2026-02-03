@@ -14,12 +14,12 @@ from .config import settings
 logger = structlog.get_logger()
 
 
-def get_llm() -> Ollama:
+def get_llm(request_timeout: float = 300.0) -> Ollama:
     """Return the configured Ollama LLM instance."""
     return Ollama(
         model=settings.LLM_MODEL,
         base_url=settings.OLLAMA_BASE_URL,
-        request_timeout=300.0,
+        request_timeout=request_timeout,
         temperature=0.1,
         context_window=8192,
     )
@@ -49,13 +49,14 @@ async def ollama_chat_with_thinking(
     system_prompt: str,
     user_message: str,
     think: bool = True,
+    model: str | None = None,
 ) -> tuple[str, str]:
     """Call Ollama chat API directly with thinking support.
 
     Returns (thinking_text, content_text).
     """
     payload = {
-        "model": settings.LLM_MODEL,
+        "model": model or settings.LLM_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},
@@ -86,13 +87,14 @@ async def ollama_chat_stream(
     system_prompt: str,
     user_message: str,
     think: bool = True,
+    model: str | None = None,
 ) -> AsyncGenerator[dict, None]:
     """Stream from Ollama chat API with thinking support.
 
     Yields dicts with keys: 'thinking' (str|None), 'content' (str|None), 'done' (bool).
     """
     payload = {
-        "model": settings.LLM_MODEL,
+        "model": model or settings.LLM_MODEL,
         "messages": [
             {"role": "system", "content": system_prompt},
             {"role": "user", "content": user_message},

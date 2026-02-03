@@ -1,15 +1,3 @@
-# Docker Compose for Agentic RAG Stack
-#
-# Services:
-#   - postgres: PostgreSQL with pgvector for vector storage
-#   - phoenix: Arize Phoenix for observability and prompt management
-#   - ollama: LLM hosting
-#   - backend: FastAPI backend API
-#   - openwebui: Chat interface connected to backend
-#
-# Usage:
-#   docker compose up -d
-
 services:
   postgres:
     image: pgvector/pgvector:pg16
@@ -54,13 +42,6 @@ services:
       - "11434:11434"
     volumes:
       - ollama_data:/root/.ollama
-    deploy:
-      resources:
-        reservations:
-          devices:
-            - driver: nvidia
-              count: 1
-              capabilities: [gpu]
     healthcheck:
       test: ["CMD-SHELL", "ollama list >/dev/null 2>&1 || exit 1"]
       interval: 10s
@@ -79,11 +60,17 @@ services:
       - ./data:/app/data
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ragdb
-      OLLAMA_BASE_URL: http://ollama:11434
+      OLLAMA_BASE_URL: ${OLLAMA_BASE_URL:-http://ollama:11434}
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006/v1/traces
       PHOENIX_API_URL: http://phoenix:6006
-      PHOENIX_PROMPT_SYNC: "true"
-      ENVIRONMENT: dev
+      PHOENIX_PROMPT_SYNC: ${PHOENIX_PROMPT_SYNC:-true}
+      PHOENIX_PROMPT_TAG: ${PHOENIX_PROMPT_TAG:-development}
+      ENVIRONMENT: ${ENVIRONMENT:-dev}
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health').read()"]
+      interval: 10s
+      timeout: 3s
+      retries: 10
     depends_on:
       postgres:
         condition: service_healthy

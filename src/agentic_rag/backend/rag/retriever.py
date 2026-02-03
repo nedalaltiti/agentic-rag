@@ -1,6 +1,8 @@
 """Hybrid retrieval combining semantic and keyword search via RRF."""
 
 import asyncio
+import time
+from collections import OrderedDict
 
 import structlog
 from llama_index.core.retrievers import BaseRetriever
@@ -20,6 +22,8 @@ class HybridRetriever(BaseRetriever):
     """Custom Hybrid Retriever using parallel execution and type-safe vector binding."""
 
     RRF_K = 60
+    _EMBED_CACHE_MAX = 128
+    _embedding_cache: "OrderedDict[str, tuple[list[float], float]]" = OrderedDict()
 
     # Filter out TOC and front-matter chunks by default
     _FILTER_TOC_FM = """
@@ -45,7 +49,7 @@ class HybridRetriever(BaseRetriever):
             "Instruct: Given a search query, retrieve relevant passages that answer the query.\n"
             f"Query: {query}"
         )
-        query_embedding = await self.embed_model.aget_query_embedding(instruct_query)
+        query_embedding = await self._get_query_embedding(instruct_query)
 
         async with AsyncSessionLocal() as s1, AsyncSessionLocal() as s2:
             results = await asyncio.gather(
@@ -131,3 +135,21 @@ class HybridRetriever(BaseRetriever):
 
         result = await session.execute(stmt, {"query": query, "limit": self.top_k * 2})
         return result.fetchall()
+
+    async def _get_query_embedding(self, query: str) -> list[float]:
+        """Best-effort LRU cache for query embeddings."""
+        cached = self._embedding_cache.get(query)
+        ttl = settings.QUERY_EMBED_CACHE_TTL
+        now = time.monotonic()
+        if cached is not None:
+            embedding, ts = cached
+            if ttl <= 0 or (now - ts) <= ttl:
+                self._embedding_cache.move_to_end(query)
+                return embedding
+            self._embedding_cache.pop(query, None)
+
+        embedding = await self.embed_model.aget_query_embedding(query)
+        self._embedding_cache[query] = (embedding, now)
+        if len(self._embedding_cache) > self._EMBED_CACHE_MAX:
+            self._embedding_cache.popitem(last=False)
+        return embedding

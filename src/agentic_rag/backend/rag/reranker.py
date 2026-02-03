@@ -4,6 +4,7 @@ Uses Ollama LLM to score relevance of candidates and re-rank them.
 """
 
 import asyncio
+import json
 import re
 
 import structlog
@@ -20,7 +21,7 @@ class LLMReranker:
     """LLM-based re-ranker using prompt templates from Phoenix."""
 
     def __init__(self):
-        self.llm = get_llm()
+        self.llm = get_llm(request_timeout=settings.RERANKER_TIMEOUT)
         self.top_n = settings.TOP_K_RERANK
         self._semaphore = asyncio.Semaphore(5)
 
@@ -57,23 +58,27 @@ class LLMReranker:
         """Score a single node using LLM."""
         passage = node.node.get_content()[:500]
 
-        # In prod, could fetch template from Phoenix
-        if settings.ENVIRONMENT == "prod":
-            template = PromptRegistry.get_template("reranker_template")
-            prompt = template.replace("{{ query }}", query).replace("{{ passage }}", passage)
-        else:
-            # Dev: always render locally
-            prompt = PromptRegistry.render("reranker_template", query=query, passage=passage)
+        prompt = PromptRegistry.render("reranker_template", query=query, passage=passage)
 
         async with self._semaphore:
             try:
                 response = await self.llm.acomplete(prompt)
                 score_text = (response.text or "").strip()
 
-                # Extract number from response
-                match = re.search(r"\b(10|[0-9](?:\.[0-9]+)?)\b", score_text)
-                if match:
-                    raw_score = float(match.group(1))
+                raw_score = None
+                try:
+                    parsed = json.loads(score_text)
+                    if isinstance(parsed, dict) and "score" in parsed:
+                        raw_score = float(parsed["score"])
+                except Exception:
+                    raw_score = None
+
+                if raw_score is None:
+                    match = re.search(r"\b(10|[0-9](?:\.[0-9]+)?)\b", score_text)
+                    if match:
+                        raw_score = float(match.group(1))
+
+                if raw_score is not None:
                     # Normalize to 0-1 range
                     node.score = min(max(raw_score, 0.0), 10.0) / 10.0
                 else:

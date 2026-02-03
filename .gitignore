@@ -13,3 +13,5 @@ data/pg_data/*
 docs/architecture.png
 terminals/
 .DS_Store
+eval_results.json
+eval_testset*.json

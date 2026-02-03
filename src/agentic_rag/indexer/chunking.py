@@ -153,6 +153,12 @@ class ContextualChunker:
         sections = self._detect_toc_or_frontmatter(sections)
         total_chars = len(text)
         page_count = metadata.get("page_count")
+        if page_count:
+            logger.info(
+                "Estimating page numbers from character offsets (approximate)",
+                file=metadata.get("file_name"),
+                pages=page_count,
+            )
 
         raw_chunks: list[dict[str, Any]] = []
         global_index = 0

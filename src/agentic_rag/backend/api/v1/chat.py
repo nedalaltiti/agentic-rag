@@ -1,7 +1,6 @@
 """OpenAI-compatible chat completions endpoint."""
 
 import asyncio
-import hashlib
 import json
 import time
 import uuid
@@ -9,7 +8,7 @@ from collections.abc import AsyncGenerator
 from typing import Literal
 
 import structlog
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 
 from agentic_rag.backend.rag.reranker import LLMReranker
@@ -59,14 +58,9 @@ def _get_session_id(
     messages: list,
     session_header: str | None = None,
 ) -> str:
-    """Get session ID from header, or derive deterministically from the first user message."""
+    """Get session ID from header, or generate a new one."""
     if session_header:
         return session_header
-
-    if messages:
-        first_user = next((m for m in messages if m.role == "user"), None)
-        if first_user:
-            return hashlib.sha256(first_user.content.encode()).hexdigest()[:16]
 
     return str(uuid.uuid4())[:16]
 
@@ -119,10 +113,10 @@ def _is_conversational(query: str) -> bool:
         "take care",
     }
     cleaned = query.strip().lower().rstrip("!.,?")
-    return cleaned in conversational or len(cleaned) <= 3
+    return cleaned in conversational
 
 
-async def _conversational_response(query: str) -> str:
+async def _conversational_response(query: str, model: str | None = None) -> str:
     """Quick LLM response for greetings/thanks."""
     system_prompt = (
         "You are a friendly PDPL (Personal Data Protection Law) compliance assistant "
@@ -136,6 +130,7 @@ async def _conversational_response(query: str) -> str:
             system_prompt=system_prompt,
             user_message=query,
             think=False,
+            model=model,
         )
         return content.strip()
     except Exception:
@@ -173,7 +168,7 @@ def _is_openwebui_internal_request(query: str) -> tuple[bool, str]:
 def _format_context_for_llm(citations: list[Citation]) -> str:
     """Format citations as context for the LLM prompt."""
     if not citations:
-        return "No relevant documents found in the knowledge base."
+        return "No relevant PDPL information found."
 
     context_parts = []
     for i, cit in enumerate(citations, 1):
@@ -269,8 +264,11 @@ async def _fast_rag_response(
     query: str,
     citations: list[Citation],
     history: list | None = None,
+    model: str | None = None,
 ) -> str:
     """Single LLM call with retrieved context (default path)."""
+    if not citations:
+        return "No relevant PDPL information found."
     context = _format_context_for_llm(citations)
     history_text = _format_history(history or [])
 
@@ -286,6 +284,7 @@ async def _fast_rag_response(
         system_prompt=system_prompt,
         user_message=user_prompt,
         think=True,
+        model=model,
     )
 
     answer = ""
@@ -300,26 +299,41 @@ async def _fast_rag_response(
 async def _agent_mode_response(
     query: str,
     session_id: str,
-    citations: list[Citation],
-) -> str:
+    model: str | None = None,
+) -> tuple[str, list[Citation]]:
     """Multi-step response via CrewAI agent pipeline."""
     from agentic_rag.backend.crew.runner import CrewRunner
 
-    context = _format_context_for_llm(citations)
+    runner = CrewRunner(session_id, model=model)
+    answer, tool_citations = await asyncio.to_thread(runner.kickoff, query)
 
-    runner = CrewRunner(session_id)
-    answer = await asyncio.to_thread(runner.kickoff_with_context, query, context)
+    if not tool_citations:
+        logger.warning(
+            "Agent returned no citations; falling back to retrieval",
+            session_id=session_id,
+        )
+        fallback_citations = await _retrieve_and_rerank(query, use_reranker=True)
+        if fallback_citations:
+            fallback_answer = await _fast_rag_response(
+                query,
+                fallback_citations,
+                history=None,
+                model=model,
+            )
+            return fallback_answer, fallback_citations
+        return "No relevant PDPL information found.", []
 
-    if citations and "Sources:" not in answer and "References" not in answer:
-        answer += _format_sources_section(citations)
+    if tool_citations and "Sources:" not in answer and "References" not in answer:
+        answer += _format_sources_section(tool_citations)
 
-    return answer
+    return answer, tool_citations
 
 
 async def _process_query(
     query: str,
     session_id: str,
     use_agent_mode: bool = False,
+    model: str | None = None,
 ) -> tuple[str, list[Citation]]:
     """Route query through internal-request check, conversational check, or RAG pipeline."""
     is_internal, internal_response = _is_openwebui_internal_request(query)
@@ -333,7 +347,7 @@ async def _process_query(
 
     if _is_conversational(query):
         logger.info("Handling conversational message", session_id=session_id)
-        answer = await _conversational_response(query)
+        answer = await _conversational_response(query, model=model)
         await memory.add_message("assistant", answer)
         return answer, []
 
@@ -347,16 +361,15 @@ async def _process_query(
         await memory.add_message("assistant", SCOPE_REFUSAL)
         return SCOPE_REFUSAL, []
 
-    citations = await _retrieve_and_rerank(query, use_reranker=use_agent_mode)
-
     try:
         if use_agent_mode:
             logger.info("Using Agent Mode (CrewAI)", session_id=session_id)
-            answer = await _agent_mode_response(query, session_id, citations)
+            answer, citations = await _agent_mode_response(query, session_id, model=model)
         else:
             logger.info("Using Fast RAG Mode", session_id=session_id)
+            citations = await _retrieve_and_rerank(query, use_reranker=False)
             history = await memory.get_history(limit=5)
-            answer = await _fast_rag_response(query, citations, history=history)
+            answer = await _fast_rag_response(query, citations, history=history, model=model)
     except Exception:
         logger.exception("Response generation failed", session_id=session_id)
         raise HTTPException(status_code=500, detail="Failed to generate response") from None
@@ -414,7 +427,7 @@ async def _stream_with_thinking(
 
     # Conversational (greetings, thanks)
     if _is_conversational(query):
-        answer = await _conversational_response(query)
+        answer = await _conversational_response(query, model=model)
         await memory.add_message("assistant", answer)
         yield sse(answer) + sse_stop()
         return
@@ -433,11 +446,13 @@ async def _stream_with_thinking(
     # Agent mode: non-streaming fallback
     if use_agent_mode:
         try:
-            citations = await _retrieve_and_rerank(query, use_reranker=True)
-            answer = await _agent_mode_response(query, session_id, citations)
+            answer, citations = await _agent_mode_response(query, session_id, model=model)
             await memory.add_message("assistant", answer)
             for idx, line in enumerate(answer.split("\n")):
                 yield sse(line if idx == 0 else "\n" + line)
+            if citations:
+                data = [c.model_dump(mode="json") for c in citations]
+                yield f"data: {json.dumps({'citations': data})}\n\n"
         except Exception:
             yield sse("Sorry, I encountered an error.")
         yield sse_stop()
@@ -465,7 +480,12 @@ async def _stream_with_thinking(
     in_thinking = True  # <think> already opened above
 
     try:
-        async for chunk in ollama_chat_stream(system_prompt, user_prompt, think=True):
+        async for chunk in ollama_chat_stream(
+            system_prompt,
+            user_prompt,
+            think=True,
+            model=model,
+        ):
             if chunk.get("thinking"):
                 yield sse(chunk["thinking"])
 
@@ -489,14 +509,15 @@ async def _stream_with_thinking(
         await memory.add_message("assistant", full_answer)
     except Exception:
         logger.exception("Streaming failed", session_id=session_id)
+        if in_thinking:
+            yield sse("</think>")
         yield sse("Sorry, I encountered an error. Please try again.")
-
-    yield sse(finish="stop")
 
     if citations:
         data = [c.model_dump(mode="json") for c in citations]
         yield f"data: {json.dumps({'citations': data})}\n\n"
 
+    yield sse(finish="stop")
     yield "data: [DONE]\n\n"
 
 
@@ -505,6 +526,7 @@ async def chat_completions(
     request: OpenAIChatRequest,
     x_session_id: str | None = Header(None, alias="X-Session-Id"),
     x_agent_mode: str | None = Header(None, alias="X-Agent-Mode"),
+    response: Response | None = None,
 ):
     """OpenAI-compatible chat completions. Supports X-Session-Id and X-Agent-Mode headers."""
     if not request.messages:
@@ -516,6 +538,11 @@ async def chat_completions(
 
     query = user_messages[-1].content
     session_id = _get_session_id(request.messages, x_session_id)
+    if not x_session_id:
+        logger.warning(
+            "X-Session-Id missing; generated a new session id for this request",
+            session_id=session_id,
+        )
     model = request.model or settings.LLM_MODEL
 
     use_agent_mode = _should_use_agent_mode(query, x_agent_mode)
@@ -534,11 +561,19 @@ async def chat_completions(
     if request.stream:
         return StreamingResponse(
             _stream_with_thinking(request_id, model, query, session_id, use_agent_mode, created_at),
+            headers={"X-Session-Id": session_id},
             media_type="text/event-stream",
         )
+    if response is not None:
+        response.headers["X-Session-Id"] = session_id
 
     try:
-        answer, citations = await _process_query(query, session_id, use_agent_mode)
+        answer, citations = await _process_query(
+            query,
+            session_id,
+            use_agent_mode,
+            model=model,
+        )
     except HTTPException:
         raise
     except Exception:

@@ -4,7 +4,12 @@ from __future__ import annotations
 
 import asyncio
 import json
+import subprocess
+import sys
 from dataclasses import dataclass
+from datetime import datetime, timezone
+from importlib import metadata as importlib_metadata
+from pathlib import Path
 from typing import Any
 
 import pandas as pd
@@ -25,6 +30,37 @@ logger = structlog.get_logger()
 class EvalResult:
     overall: dict[str, float]
     per_sample: pd.DataFrame
+
+
+def _get_git_commit() -> str | None:
+    try:
+        cwd = Path(__file__).resolve().parent
+        output = subprocess.check_output(
+            ["git", "rev-parse", "--short", "HEAD"], cwd=cwd, text=True, timeout=2
+        )
+        return output.strip() or None
+    except Exception:
+        return None
+
+
+def _get_pkg_version(name: str) -> str | None:
+    try:
+        return importlib_metadata.version(name)
+    except Exception:
+        return None
+
+
+def _hash_file(path: str) -> str | None:
+    try:
+        import hashlib
+
+        digest = hashlib.sha256()
+        with open(path, "rb") as f:
+            for chunk in iter(lambda: f.read(8192), b""):
+                digest.update(chunk)
+        return digest.hexdigest()
+    except Exception:
+        return None
 
 
 def _format_context(
@@ -48,7 +84,7 @@ def _format_context(
 
 async def _answer_with_fast_rag(question: str, citations: list[Citation]) -> str:
     """Single-call answer generation using the user_prompt template."""
-    llm = get_llm()
+    llm = get_llm(request_timeout=float(settings.EVAL_TIMEOUT))
     context = _format_context(citations)
 
     prompt = ""
@@ -133,6 +169,7 @@ async def evaluate_rag_pipeline(
         context_recall,
         faithfulness,
     )
+    from ragas.run_config import RunConfig
 
     eval_llm = get_eval_llm()
     logger.info("Evaluator model: %s", settings.EVAL_MODEL)
@@ -141,11 +178,20 @@ async def evaluate_rag_pipeline(
 
     ds = Dataset.from_pandas(df)
 
+    # Ollama processes one request at a time — sequential execution prevents timeouts
+    run_config = RunConfig(
+        max_workers=settings.EVAL_MAX_WORKERS,
+        timeout=settings.EVAL_TIMEOUT,
+        max_retries=3,
+        max_wait=120,
+    )
+
     result = evaluate(
         ds,
         metrics=[faithfulness, answer_relevancy, context_precision, context_recall],
         llm=evaluator_llm,
         embeddings=evaluator_emb,
+        run_config=run_config,
     )
 
     try:
@@ -160,7 +206,43 @@ async def evaluate_rag_pipeline(
         numeric_cols = per_sample_df.select_dtypes(include="number").columns
         overall = {c: float(per_sample_df[c].mean()) for c in numeric_cols}
 
+    packages = {
+        "ragas": _get_pkg_version("ragas"),
+        "llama_index": _get_pkg_version("llama-index"),
+        "llama_index_core": _get_pkg_version("llama-index-core"),
+    }
+    packages = {k: v for k, v in packages.items() if v}
+
+    metadata = {
+        "timestamp_utc": datetime.now(timezone.utc).isoformat(),
+        "git_commit": _get_git_commit(),
+        "app_version": settings.APP_VERSION,
+        "environment": settings.ENVIRONMENT,
+        "phoenix_prompt_tag": settings.PHOENIX_PROMPT_TAG,
+        "models": {
+            "llm": settings.LLM_MODEL,
+            "embedding": settings.EMBEDDING_MODEL,
+            "eval": settings.EVAL_MODEL,
+        },
+        "packages": packages,
+        "python_version": sys.version.split()[0],
+        "testset_sha256": _hash_file(testset_path),
+        "settings": {
+            "chunk_size": settings.CHUNK_SIZE,
+            "chunk_overlap": settings.CHUNK_OVERLAP,
+            "top_k_retrieval": settings.TOP_K_RETRIEVAL,
+            "top_k_rerank": settings.TOP_K_RERANK,
+            "rrf_weight_vector": settings.RRF_WEIGHT_VECTOR,
+            "rrf_weight_keyword": settings.RRF_WEIGHT_KEYWORD,
+            "reranker_timeout": settings.RERANKER_TIMEOUT,
+            "query_embed_cache_ttl": settings.QUERY_EMBED_CACHE_TTL,
+            "eval_max_workers": settings.EVAL_MAX_WORKERS,
+            "eval_timeout": settings.EVAL_TIMEOUT,
+        },
+    }
+
     payload = {
+        "metadata": metadata,
         "overall": overall,
         "per_sample": per_sample_df.to_dict(orient="records"),
         "config": {

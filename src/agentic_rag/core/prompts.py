@@ -45,8 +45,9 @@ class PromptRegistry:
 
     @classmethod
     def render(cls, name: str, **kwargs: Any) -> str:
-        """Render a local Jinja2 template by name."""
-        template = cls._env.get_template(f"{name}.j2")
+        """Render a prompt template. In prod, fetches from Phoenix first."""
+        template_str = cls.get_template(name)
+        template = cls._env.from_string(template_str)
         return template.render(**kwargs)
 
     @classmethod

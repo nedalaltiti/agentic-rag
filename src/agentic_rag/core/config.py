@@ -50,10 +50,13 @@ class Settings(BaseSettings):
     TOP_K_RETRIEVAL: int = 10
     TOP_K_RERANK: int = 5
     USE_CREWAI: bool = True
-    EVAL_MODEL: str = "prometheus2:7b"
+    EVAL_MODEL: str = "qwen3:4b"
     RRF_WEIGHT_VECTOR: float = 1.0
     RRF_WEIGHT_KEYWORD: float = 1.0
     RERANKER_TIMEOUT: float = 30.0
+    QUERY_EMBED_CACHE_TTL: int = 900
+    EVAL_MAX_WORKERS: int = 1
+    EVAL_TIMEOUT: int = 600
 
     model_config = SettingsConfigDict(
         env_file=".env",

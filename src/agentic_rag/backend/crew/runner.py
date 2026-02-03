@@ -4,8 +4,10 @@ import structlog
 from crewai import Crew, Process, Task
 
 from agentic_rag.core.prompts import PromptRegistry
+from agentic_rag.core.schemas import Citation
 
 from .agents import create_researcher_agent, create_writer_agent
+from .tools import DatabaseSearchTool, MemoryLookupTool
 
 logger = structlog.get_logger()
 
@@ -13,10 +15,17 @@ logger = structlog.get_logger()
 class CrewRunner:
     """Orchestrates the research-then-write agent pipeline."""
 
-    def __init__(self, session_id: str):
+    def __init__(self, session_id: str, model: str | None = None):
         self.session_id = session_id
-        self.researcher = create_researcher_agent(session_id)
-        self.writer = create_writer_agent()
+        self.db_tool = DatabaseSearchTool()
+        self.mem_tool = MemoryLookupTool(session_id=session_id)
+        self.researcher = create_researcher_agent(
+            session_id,
+            model_name=model,
+            database_tool=self.db_tool,
+            memory_tool=self.mem_tool,
+        )
+        self.writer = create_writer_agent(model_name=model)
 
     def kickoff_with_context(self, query: str, knowledge_context: str) -> str:
         """Run CrewAI with pre-retrieved context, bypassing researcher tool usage."""
@@ -51,7 +60,7 @@ class CrewRunner:
         result = synthesis_crew.kickoff()
         return str(result)
 
-    def kickoff(self, query: str) -> str:
+    def kickoff(self, query: str) -> tuple[str, list[Citation]]:
         """Run the full CrewAI pipeline with tool usage."""
         logger.info("Kickstarting Crew (full pipeline)", session_id=self.session_id)
 
@@ -75,7 +84,7 @@ class CrewRunner:
         write_task = Task(
             description=(
                 "Using the researcher's findings, write a response following these rules:\n\n"
-                "IF researcher found 'No relevant PDPL information':\n"
+                "IF researcher found 'No relevant PDPL information found.':\n"
                 "- Naturally explain it's not in the knowledge base, "
                 "then suggest related PDPL questions.\n\n"
                 "FOR SUBSTANTIVE ANSWERS:\n"
@@ -103,4 +112,5 @@ class CrewRunner:
         )
 
         result = rag_crew.kickoff()
-        return str(result)
+        citations = self.db_tool.get_last_citations()
+        return str(result), citations
