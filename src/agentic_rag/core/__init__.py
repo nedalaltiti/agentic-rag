@@ -12,7 +12,6 @@ from .constants import (
     DOC_HASH,
     DOC_ID,
     DOC_NAME,
-    EMBEDDING_DIMENSION,
     PAGE_NUMBER,
     SECTION_TITLE,
 )
@@ -41,7 +40,6 @@ __all__ = [
     "SECTION_TITLE",
     "CREATED_AT",
     "CONTEXT_PREFIX",
-    "EMBEDDING_DIMENSION",
     "COLLECTION_NAME",
     "AGENT_PLANNER",
     "AGENT_RETRIEVER",

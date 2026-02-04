@@ -1,45 +1,40 @@
 """OpenAI-compatible chat completions endpoint."""
 
-import asyncio
 import json
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Literal
 
 import structlog
 from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 
-from agentic_rag.backend.rag.reranker import LLMReranker
-from agentic_rag.backend.rag.retriever import HybridRetriever
-from agentic_rag.core.citations import format_citations
+from agentic_rag.backend.api.v1.chat_service import (
+    SCOPE_REFUSAL,
+    RouteDecision,
+    _agent_mode_response,
+    _conversational_response,
+    _fallback_rag_answer,
+    _fast_rag_response,
+    _prepare_rag,
+    _route_decision,
+)
+from agentic_rag.backend.rag.semantic_cache import lookup_cache, store_cache
 from agentic_rag.core.config import settings
-from agentic_rag.core.llm_factory import ollama_chat_stream, ollama_chat_with_thinking
-from agentic_rag.core.memory import ConversationMemory
-from agentic_rag.core.prompts import PromptRegistry
+from agentic_rag.core.exceptions import DependencyUnavailable, IndexMismatchError
+from agentic_rag.core.llm_factory import ollama_chat_with_thinking
 from agentic_rag.core.schemas import (
     Citation,
     OpenAIChatChoice,
     OpenAIChatMessage,
     OpenAIChatRequest,
     OpenAIChatResponse,
-    OpenAIChatStreamChoice,
-    OpenAIChatStreamChunk,
-    OpenAIChatStreamDelta,
     TokenUsage,
 )
-from agentic_rag.core.scope_gate import ScopeGate
 
 logger = structlog.get_logger()
 
 router = APIRouter(tags=["chat"])
-
-SCOPE_REFUSAL = (
-    "I specialize in PDPL and data protection topics only. "
-    "I'm not able to help with that question. "
-    "Feel free to ask me anything about Saudi Arabia's Personal Data Protection Law!"
-)
 
 AGENT_MODE_KEYWORDS = {
     "compare",
@@ -80,253 +75,53 @@ def _should_use_agent_mode(query: str, agent_header: str | None) -> bool:
     return any(kw in query_lower for kw in AGENT_MODE_KEYWORDS)
 
 
-def _is_conversational(query: str) -> bool:
-    """Check if query is conversational (greeting, thanks, farewell) - no RAG needed."""
-    conversational = {
-        "hello",
-        "hi",
-        "hey",
-        "hii",
-        "helloo",
-        "hiii",
-        "heyyy",
-        "yo",
-        "thanks",
-        "thank you",
-        "thx",
-        "ty",
-        "appreciated",
-        "great",
-        "awesome",
-        "ok",
-        "okay",
-        "sure",
-        "yes",
-        "no",
-        "no thanks",
-        "nothing",
-        "got it",
-        "bye",
-        "goodbye",
-        "see you",
-        "later",
-        "take care",
-    }
-    cleaned = query.strip().lower().rstrip("!.,?")
-    return cleaned in conversational
+async def _generate_followup_questions(
+    messages: list[OpenAIChatMessage],
+) -> str:
+    """Generate contextual follow-up questions based on conversation history."""
+    # Extract last assistant message for context
+    last_assistant = ""
+    for msg in reversed(messages):
+        if msg.role == "assistant" and msg.content:
+            last_assistant = msg.content[:1000]
+            break
 
+    if not last_assistant:
+        return json.dumps({
+            "questions": [
+                "What are the key obligations under PDPL?",
+                "How does PDPL handle cross-border data transfers?",
+                "What are the penalties for non-compliance?",
+            ]
+        })
 
-async def _conversational_response(query: str, model: str | None = None) -> str:
-    """Quick LLM response for greetings/thanks."""
-    system_prompt = (
-        "You are a friendly PDPL (Personal Data Protection Law) compliance assistant "
-        "for Saudi Arabia. Respond naturally and briefly to the user's message. "
-        "Always end by offering help with PDPL and data protection topics. "
-        "Keep responses to 1-2 sentences max. Be warm but professional. No emojis."
+    prompt = (
+        "Based on this assistant response, generate exactly 3 short follow-up "
+        "questions the user might ask next about PDPL. Return ONLY a JSON object "
+        'in this format: {"questions": ["q1", "q2", "q3"]}\n\n'
+        f"Assistant response:\n{last_assistant}"
     )
 
     try:
         _, content = await ollama_chat_with_thinking(
-            system_prompt=system_prompt,
-            user_message=query,
+            system_prompt="You generate follow-up questions. Reply with JSON only.",
+            user_message=prompt,
             think=False,
-            model=model,
         )
-        return content.strip()
+        # Validate it's parseable JSON
+        parsed = json.loads(content.strip())
+        if "questions" in parsed and isinstance(parsed["questions"], list):
+            return json.dumps(parsed)
     except Exception:
-        return (
-            "Welcome! I'm here to help with Saudi Arabia's Personal Data Protection Law (PDPL). "
-            "What would you like to know?"
-        )
+        logger.debug("Follow-up generation failed, using defaults")
 
-
-def _is_openwebui_internal_request(query: str) -> tuple[bool, str]:
-    """Detect and short-circuit OpenWebUI internal requests (title gen, follow-ups, tags)."""
-    query_lower = query.strip().lower()
-    app_name = settings.APP_NAME
-
-    if "### task:" in query_lower and "title" in query_lower and "emoji" in query_lower:
-        return True, f'{{"title": "{app_name} Chat"}}'
-
-    if "### task:" in query_lower and "follow-up questions" in query_lower:
-        return True, (
-            '{"questions": ['
-            '"What are the key obligations for data controllers under PDPL?", '
-            '"How does the PDPL handle cross-border data transfers?", '
-            '"What are the penalties for non-compliance with PDPL?"]}'
-        )
-
-    if "### task:" in query_lower and ("tags" in query_lower or "classify" in query_lower):
-        return True, '{"tags": ["rag", "knowledge-base", "assistant"]}'
-
-    if query.strip().startswith("### Task:") or query.strip().startswith("###Task:"):
-        return True, "OK"
-
-    return False, ""
-
-
-def _format_context_for_llm(citations: list[Citation]) -> str:
-    """Format citations as context for the LLM prompt."""
-    if not citations:
-        return "No relevant PDPL information found."
-
-    context_parts = []
-    for i, cit in enumerate(citations, 1):
-        doc_name = cit.file_name.replace("+", " ").replace(".md", "").replace("_", " ")
-
-        header_parts = [f"Source [{i}]: {doc_name}"]
-        if cit.section_path and cit.section_path != "N/A":
-            header_parts.append(f"Section: {cit.section_path}")
-        if cit.page_number:
-            header_parts.append(f"Page: {cit.page_number}")
-
-        header = " | ".join(header_parts)
-
-        content = cit.chunk_text[:1500].strip()
-
-        context_parts.append(f"{header}\n{content}")
-
-    return "\n\n---\n\n".join(context_parts)
-
-
-async def _retrieve_and_rerank(
-    query: str,
-    use_reranker: bool = False,
-) -> list[Citation]:
-    """Retrieve documents and optionally rerank them."""
-    retriever = HybridRetriever(include_toc=False)
-
-    try:
-        nodes = await retriever.aretrieve(query)
-
-        if use_reranker and nodes:
-            reranker = LLMReranker()
-            reranker._semaphore = asyncio.Semaphore(1)
-            nodes = await reranker.rerank(query, nodes[:5])
-        else:
-            nodes = nodes[:5]
-
-        citations = format_citations(nodes)
-
-        logger.info(
-            "Retrieval completed",
-            query=query[:50],
-            documents_found=len(citations),
-            reranked=use_reranker,
-        )
-
-        return citations
-    except Exception:
-        logger.exception("Retrieval failed")
-        return []
-
-
-def _format_sources_section(citations: list[Citation]) -> str:
-    """Format citations as a visible Sources section for the answer."""
-    if not citations:
-        return ""
-
-    sources = []
-    seen = set()  # Deduplicate sources
-
-    for i, c in enumerate(citations[:5], 1):
-        doc_name = c.file_name.replace("+", " ").replace(".md", "").replace("_", " ")
-
-        section = c.section_path if c.section_path and c.section_path != "N/A" else ""
-        source_key = f"{doc_name}|{section}"
-
-        if source_key not in seen:
-            seen.add(source_key)
-            if section:
-                sources.append(f"- [{i}] {doc_name} — {section}")
-            else:
-                sources.append(f"- [{i}] {doc_name}")
-
-    if not sources:
-        return ""
-
-    return "\n\n---\n\n**Sources:**\n\n" + "\n".join(sources)
-
-
-def _format_history(messages: list) -> str:
-    """Format conversation history for prompt injection."""
-    if not messages:
-        return ""
-    lines = []
-    for msg in messages:
-        role = msg.role.value.capitalize() if hasattr(msg.role, "value") else str(msg.role)
-        content = msg.content[:500] if msg.content else ""
-        lines.append(f"{role}: {content}")
-    return "\n".join(lines)
-
-
-async def _fast_rag_response(
-    query: str,
-    citations: list[Citation],
-    history: list | None = None,
-    model: str | None = None,
-) -> str:
-    """Single LLM call with retrieved context (default path)."""
-    if not citations:
-        return "No relevant PDPL information found."
-    context = _format_context_for_llm(citations)
-    history_text = _format_history(history or [])
-
-    system_prompt = PromptRegistry.render("system_prompt")
-    user_prompt = PromptRegistry.render(
-        "user_prompt",
-        query=query,
-        context=context,
-        history=history_text,
-    )
-
-    thinking, content = await ollama_chat_with_thinking(
-        system_prompt=system_prompt,
-        user_message=user_prompt,
-        think=True,
-        model=model,
-    )
-
-    answer = ""
-    if thinking:
-        answer = f"<think>\n{thinking}\n</think>\n\n"
-    answer += content.strip()
-    answer += _format_sources_section(citations)
-
-    return answer
-
-
-async def _agent_mode_response(
-    query: str,
-    session_id: str,
-    model: str | None = None,
-) -> tuple[str, list[Citation]]:
-    """Multi-step response via CrewAI agent pipeline."""
-    from agentic_rag.backend.crew.runner import CrewRunner
-
-    runner = CrewRunner(session_id, model=model)
-    answer, tool_citations = await asyncio.to_thread(runner.kickoff, query)
-
-    if not tool_citations:
-        logger.warning(
-            "Agent returned no citations; falling back to retrieval",
-            session_id=session_id,
-        )
-        fallback_citations = await _retrieve_and_rerank(query, use_reranker=True)
-        if fallback_citations:
-            fallback_answer = await _fast_rag_response(
-                query,
-                fallback_citations,
-                history=None,
-                model=model,
-            )
-            return fallback_answer, fallback_citations
-        return "No relevant PDPL information found.", []
-
-    if tool_citations and "Sources:" not in answer and "References" not in answer:
-        answer += _format_sources_section(tool_citations)
-
-    return answer, tool_citations
+    return json.dumps({
+        "questions": [
+            "What are the key obligations under PDPL?",
+            "How does PDPL handle cross-border data transfers?",
+            "What are the penalties for non-compliance?",
+        ]
+    })
 
 
 async def _process_query(
@@ -335,46 +130,76 @@ async def _process_query(
     use_agent_mode: bool = False,
     model: str | None = None,
 ) -> tuple[str, list[Citation]]:
-    """Route query through internal-request check, conversational check, or RAG pipeline."""
-    is_internal, internal_response = _is_openwebui_internal_request(query)
-    if is_internal:
-        logger.info("Bypassing RAG for OpenWebUI internal request", session_id=session_id)
-        return internal_response, []
+    """Route query once, then render response for non-streaming clients."""
+    route = await _route_decision(query, session_id, use_agent_mode)
 
-    memory = ConversationMemory(session_id)
+    if route.kind == "internal":
+        return route.internal_response, []
 
-    await memory.add_message("user", query)
+    memory = route.memory
+    if memory is None:
+        raise HTTPException(status_code=500, detail="Failed to initialize memory")
 
-    if _is_conversational(query):
-        logger.info("Handling conversational message", session_id=session_id)
+    if route.kind == "conversational":
         answer = await _conversational_response(query, model=model)
         await memory.add_message("assistant", answer)
         return answer, []
 
-    # Semantic scope gate
-    try:
-        in_scope, _ = await ScopeGate.is_in_scope(query)
-    except Exception:
-        in_scope = True
-    if not in_scope:
-        logger.info("Out-of-scope query refused (non-stream)", session_id=session_id)
+    if route.kind == "scope_refusal":
         await memory.add_message("assistant", SCOPE_REFUSAL)
         return SCOPE_REFUSAL, []
 
     try:
-        if use_agent_mode:
-            logger.info("Using Agent Mode (CrewAI)", session_id=session_id)
-            answer, citations = await _agent_mode_response(query, session_id, model=model)
+        if route.kind == "agent":
+            answer, citations = await _agent_mode_response(
+                query, session_id, model=model,
+            )
         else:
-            logger.info("Using Fast RAG Mode", session_id=session_id)
-            citations = await _retrieve_and_rerank(query, use_reranker=False)
-            history = await memory.get_history(limit=5)
-            answer = await _fast_rag_response(query, citations, history=history, model=model)
+            used_fallback = False
+            cached = await lookup_cache(query)
+            if cached is not None:
+                await memory.add_message("assistant", cached.answer)
+                return cached.answer, cached.citations
+
+            rag_payload = await _prepare_rag(memory, query)
+            citations = rag_payload.citations
+            try:
+                answer = await _fast_rag_response(
+                    query,
+                    citations,
+                    history=rag_payload.history,
+                    model=model,
+                    system_prompt=rag_payload.system_prompt,
+                    user_prompt=rag_payload.user_prompt,
+                )
+            except Exception:
+                logger.exception("LLM generation failed; using fallback response")
+                answer = _fallback_rag_answer(citations)
+                used_fallback = True
+    except IndexMismatchError as exc:
+        logger.exception("Index mismatch during retrieval", details=exc.details)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Index embedding mismatch. Reindex documents or update INDEX_VERSION/"
+                "EMBEDDING_MODEL to match the existing index."
+            ),
+        ) from None
+    except DependencyUnavailable as exc:
+        logger.exception("Dependency unavailable", service=getattr(exc, "service", None))
+        answer = (
+            "Search service is temporarily unavailable. "
+            "Please try again in a moment."
+        )
+        await memory.add_message("assistant", answer)
+        return answer, []
     except Exception:
         logger.exception("Response generation failed", session_id=session_id)
         raise HTTPException(status_code=500, detail="Failed to generate response") from None
 
     await memory.add_message("assistant", answer)
+    if route.kind == "rag" and not used_fallback and citations:
+        await store_cache(query, answer, citations)
 
     return answer, citations
 
@@ -388,145 +213,21 @@ async def _stream_with_thinking(
     created_at: int,
 ) -> AsyncGenerator[str, None]:
     """Stream the response as SSE chunks with real-time thinking."""
+    from agentic_rag.backend.api.v1.streaming import StreamingRenderer
 
-    def sse(
-        content: str = "",
-        role: Literal["assistant"] | None = None,
-        finish: str | None = None,
-    ) -> str:
-        chunk = OpenAIChatStreamChunk(
-            id=request_id,
-            created=created_at,
-            model=model,
-            choices=[
-                OpenAIChatStreamChoice(
-                    index=0,
-                    delta=OpenAIChatStreamDelta(
-                        role=role,
-                        content=content or None,
-                    ),
-                    finish_reason=finish,
-                )
-            ],
-        )
-        return f"data: {chunk.model_dump_json()}\n\n"
+    route = await _route_decision(query, session_id, use_agent_mode)
+    renderer = StreamingRenderer(request_id, model, created_at)
 
-    def sse_stop() -> str:
-        return sse(finish="stop") + "data: [DONE]\n\n"
-
-    yield sse(role="assistant")
-
-    # Internal OpenWebUI requests (title gen, follow-ups, tags)
-    is_internal, internal_response = _is_openwebui_internal_request(query)
-    if is_internal:
-        yield sse(internal_response) + sse_stop()
-        return
-
-    memory = ConversationMemory(session_id)
-    await memory.add_message("user", query)
-
-    # Conversational (greetings, thanks)
-    if _is_conversational(query):
-        answer = await _conversational_response(query, model=model)
-        await memory.add_message("assistant", answer)
-        yield sse(answer) + sse_stop()
-        return
-
-    # Scope gate: refuse off-topic before retrieval
-    try:
-        in_scope, _ = await ScopeGate.is_in_scope(query)
-    except Exception:
-        in_scope = True
-
-    if not in_scope:
-        await memory.add_message("assistant", SCOPE_REFUSAL)
-        yield sse(SCOPE_REFUSAL) + sse_stop()
-        return
-
-    # Agent mode: non-streaming fallback
-    if use_agent_mode:
-        try:
-            answer, citations = await _agent_mode_response(query, session_id, model=model)
-            await memory.add_message("assistant", answer)
-            for idx, line in enumerate(answer.split("\n")):
-                yield sse(line if idx == 0 else "\n" + line)
-            if citations:
-                data = [c.model_dump(mode="json") for c in citations]
-                yield f"data: {json.dumps({'citations': data})}\n\n"
-        except Exception:
-            yield sse("Sorry, I encountered an error.")
-        yield sse_stop()
-        return
-
-    # --- RAG mode: real-time streaming from Ollama with thinking ---
-
-    yield sse("<think>Searching documents...")
-
-    try:
-        citations = await _retrieve_and_rerank(query, use_reranker=False)
-    except Exception:
-        logger.exception("Retrieval failed", session_id=session_id)
-        citations = []
-
-    context = _format_context_for_llm(citations)
-    history_text = _format_history(await memory.get_history(limit=5))
-
-    system_prompt = PromptRegistry.render("system_prompt")
-    user_prompt = PromptRegistry.render(
-        "user_prompt", query=query, context=context, history=history_text
-    )
-
-    full_answer = ""
-    in_thinking = True  # <think> already opened above
-
-    try:
-        async for chunk in ollama_chat_stream(
-            system_prompt,
-            user_prompt,
-            think=True,
-            model=model,
-        ):
-            if chunk.get("thinking"):
-                yield sse(chunk["thinking"])
-
-            if chunk.get("content"):
-                if in_thinking:
-                    yield sse("</think>")
-                    in_thinking = False
-                full_answer += chunk["content"]
-                yield sse(chunk["content"])
-
-            if chunk.get("done"):
-                if in_thinking:
-                    yield sse("</think>")
-                break
-
-        sources = _format_sources_section(citations)
-        if sources:
-            yield sse(sources)
-            full_answer += sources
-
-        await memory.add_message("assistant", full_answer)
-    except Exception:
-        logger.exception("Streaming failed", session_id=session_id)
-        if in_thinking:
-            yield sse("</think>")
-        yield sse("Sorry, I encountered an error. Please try again.")
-
-    if citations:
-        data = [c.model_dump(mode="json") for c in citations]
-        yield f"data: {json.dumps({'citations': data})}\n\n"
-
-    yield sse(finish="stop")
-    yield "data: [DONE]\n\n"
+    async for chunk in renderer.stream_response(route, query):
+        yield chunk
 
 
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: OpenAIChatRequest,
+    response: Response,
     x_session_id: str | None = Header(None, alias="X-Session-Id"),
     x_agent_mode: str | None = Header(None, alias="X-Agent-Mode"),
-    response: Response | None = None,
 ):
     """OpenAI-compatible chat completions. Supports X-Session-Id and X-Agent-Mode headers."""
     if not request.messages:
@@ -544,28 +245,62 @@ async def chat_completions(
             session_id=session_id,
         )
     model = request.model or settings.LLM_MODEL
+    request_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
+    created_at = int(time.time())
+    should_stream = bool(request.stream) or settings.FORCE_STREAMING
 
+    # Handle follow-up questions request from Open WebUI
+    query_lower = query.strip().lower()
+    if "### task:" in query_lower and "follow-up questions" in query_lower:
+        followup_json = await _generate_followup_questions(request.messages)
+        if should_stream:
+            from agentic_rag.backend.api.v1.streaming import StreamingRenderer
+
+            route = RouteDecision(
+                kind="internal",
+                session_id=session_id,
+                internal_response=followup_json,
+            )
+            renderer = StreamingRenderer(request_id, model, created_at)
+            return StreamingResponse(
+                renderer.stream_response(route, query),
+                headers={"X-Session-Id": session_id},
+                media_type="text/event-stream",
+            )
+        return OpenAIChatResponse(
+            id=request_id,
+            created=created_at,
+            model=model,
+            choices=[
+                OpenAIChatChoice(
+                    index=0,
+                    message=OpenAIChatMessage(
+                        role="assistant", content=followup_json,
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            usage=TokenUsage(
+                prompt_tokens=0, completion_tokens=0, total_tokens=0,
+            ),
+        )
     use_agent_mode = _should_use_agent_mode(query, x_agent_mode)
 
     logger.info(
         "Chat request received",
         model=model,
-        stream=request.stream,
+        stream=should_stream,
         session_id=session_id,
         agent_mode=use_agent_mode,
     )
 
-    request_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
-    created_at = int(time.time())
-
-    if request.stream:
+    if should_stream:
         return StreamingResponse(
             _stream_with_thinking(request_id, model, query, session_id, use_agent_mode, created_at),
             headers={"X-Session-Id": session_id},
             media_type="text/event-stream",
         )
-    if response is not None:
-        response.headers["X-Session-Id"] = session_id
+    response.headers["X-Session-Id"] = session_id
 
     try:
         answer, citations = await _process_query(

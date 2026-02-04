@@ -33,7 +33,6 @@ class TestSample:
     context: str
 
 
-
 def _safe_json_loads(text_str: str) -> dict[str, Any] | None:
     """Best-effort extraction of the first JSON object from LLM output."""
     start = text_str.find("{")

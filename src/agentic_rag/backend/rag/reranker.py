@@ -4,8 +4,11 @@ Uses Ollama LLM to score relevance of candidates and re-rank them.
 """
 
 import asyncio
+import hashlib
 import json
 import re
+import time
+from collections import OrderedDict
 
 import structlog
 from llama_index.core.schema import NodeWithScore
@@ -24,6 +27,7 @@ class LLMReranker:
         self.llm = get_llm(request_timeout=settings.RERANKER_TIMEOUT)
         self.top_n = settings.TOP_K_RERANK
         self._semaphore = asyncio.Semaphore(5)
+        self._score_cache: "OrderedDict[str, tuple[float, float]]" = OrderedDict()
 
     async def rerank(self, query: str, nodes: list[NodeWithScore]) -> list[NodeWithScore]:
         """
@@ -58,6 +62,19 @@ class LLMReranker:
         """Score a single node using LLM."""
         passage = node.node.get_content()[:500]
 
+        cache_key = hashlib.sha256(f"{query}\n{passage}".encode("utf-8")).hexdigest()
+        ttl = settings.RERANK_CACHE_TTL
+        now = time.monotonic()
+        if ttl > 0:
+            cached = self._score_cache.get(cache_key)
+            if cached is not None:
+                score, ts = cached
+                if (now - ts) <= ttl:
+                    self._score_cache.move_to_end(cache_key)
+                    node.score = score
+                    return node
+                self._score_cache.pop(cache_key, None)
+
         prompt = PromptRegistry.render("reranker_template", query=query, passage=passage)
 
         async with self._semaphore:
@@ -87,5 +104,10 @@ class LLMReranker:
                 logger.warning("Re-ranking failed for node", error=str(e))
                 # Keep original score on failure
                 pass
+
+        if ttl > 0 and node.score is not None:
+            self._score_cache[cache_key] = (float(node.score), now)
+            if len(self._score_cache) > settings.RERANK_CACHE_MAX:
+                self._score_cache.popitem(last=False)
 
         return node

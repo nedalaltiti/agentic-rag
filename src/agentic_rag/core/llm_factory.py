@@ -1,7 +1,9 @@
 """LLM and Embedding model factory using Ollama."""
 
+from __future__ import annotations
+
 import json as json_mod
-from collections.abc import AsyncGenerator
+from collections.abc import AsyncGenerator, Callable
 
 import httpx
 import structlog
@@ -20,7 +22,7 @@ def get_llm(request_timeout: float = 300.0) -> Ollama:
         model=settings.LLM_MODEL,
         base_url=settings.OLLAMA_BASE_URL,
         request_timeout=request_timeout,
-        temperature=0.1,
+        temperature=0.0,
         context_window=8192,
     )
 
@@ -45,6 +47,56 @@ def get_embedding_model() -> OllamaEmbedding:
     )
 
 
+def get_tokenizer() -> Callable[[str], list[int]]:
+    """Return a tokenizer callable for SentenceSplitter chunk sizing."""
+    if hasattr(get_tokenizer, "_cached"):
+        cached: Callable[[str], list[int]] = get_tokenizer._cached  # type: ignore[attr-defined]
+        return cached
+
+    backend = settings.TOKENIZER.strip()
+
+    if backend.startswith("hf:"):
+        repo = backend[3:].strip()
+        if not repo:
+            logger.warning(
+                "TOKENIZER='hf:' with empty repo, falling back to default",
+            )
+        else:
+            try:
+                from transformers import AutoTokenizer  # type: ignore[import-untyped]
+
+                hf_tok = AutoTokenizer.from_pretrained(
+                    repo, trust_remote_code=True, local_files_only=True,
+                )
+
+                def _hf_encode(text: str) -> list[int]:
+                    result: list[int] = hf_tok.encode(
+                        text, add_special_tokens=False,
+                    )
+                    return result
+
+                get_tokenizer._cached = _hf_encode  # type: ignore[attr-defined]
+                logger.info(
+                    "Loaded HuggingFace tokenizer for chunking",
+                    repo=repo,
+                )
+                return _hf_encode
+            except Exception:
+                logger.warning(
+                    "HuggingFace tokenizer not found locally, "
+                    "falling back to cl100k_base",
+                    repo=repo,
+                )
+
+    # Default: LlamaIndex built-in tokenizer (tiktoken cl100k_base)
+    from llama_index.core.utils import get_tokenizer as _llama_get_tokenizer
+
+    tok = _llama_get_tokenizer()
+    get_tokenizer._cached = tok  # type: ignore[attr-defined]
+    logger.info("Using default tokenizer (cl100k_base) for chunking")
+    return tok
+
+
 async def ollama_chat_with_thinking(
     system_prompt: str,
     user_message: str,
@@ -64,7 +116,7 @@ async def ollama_chat_with_thinking(
         "stream": False,
         "think": think,
         "options": {
-            "temperature": 0.1,
+            "temperature": 0.0,
             "num_ctx": 8192,
         },
     }
@@ -102,7 +154,7 @@ async def ollama_chat_stream(
         "stream": True,
         "think": think,
         "options": {
-            "temperature": 0.1,
+            "temperature": 0.0,
             "num_ctx": 8192,
         },
     }
@@ -124,6 +176,44 @@ async def ollama_chat_stream(
                     "content": msg.get("content", None),
                     "done": chunk.get("done", False),
                 }
+
+
+def validate_embedding_dimension() -> None:
+    """Embed a short probe and check it matches EMBEDDING_DIMENSION.
+
+    Call once at startup (e.g. during ingestion) to catch model/config
+    mismatches before writing bad vectors to the DB.
+    """
+    import asyncio
+
+    embed_model = get_embedding_model()
+
+    async def _probe() -> int:
+        vec = await embed_model.aget_text_embedding("dimension probe")
+        return len(vec)
+
+    try:
+        asyncio.get_running_loop()
+        # Already inside an async context — run in a new thread to avoid nesting.
+        import concurrent.futures
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            actual = pool.submit(asyncio.run, _probe()).result()
+    except RuntimeError:
+        # No running loop — safe to use asyncio.run directly.
+        actual = asyncio.run(_probe())
+    expected = settings.EMBEDDING_DIMENSION
+    if actual != expected:
+        raise ValueError(
+            f"EMBEDDING_DIMENSION={expected} but {settings.EMBEDDING_MODEL} "
+            f"produces {actual}-d vectors. Update EMBEDDING_DIMENSION or "
+            f"the DB schema (migrations/002)."
+        )
+    logger.info(
+        "Embedding dimension validated",
+        model=settings.EMBEDDING_MODEL,
+        dimension=actual,
+    )
 
 
 def configure_global_settings() -> None:

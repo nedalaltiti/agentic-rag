@@ -64,6 +64,10 @@ Put PDFs in `data/raw/` then:
 agentic-index --source data/raw/
 ```
 
+**Index versioning:** If you change the embedding model, tokenizer, or chunking settings, bump
+`INDEX_VERSION` (in `.env`) and re-run the indexer. This keeps retrieval aligned to the
+correct embedding space.
+
 **Chunking modes:**
 
 | Mode | Command | What it does | When to use |
@@ -108,6 +112,16 @@ agentic-eval evaluate --testset eval_testset.json --output eval_results.json
 # 3. Pretty-print the results
 agentic-eval report --results eval_results.json
 ```
+
+### Continuous evaluation (monitoring)
+
+Run evaluations on a schedule to monitor retrieval quality over time:
+
+```bash
+agentic-eval monitor --testset eval_testset.json --output-dir eval_runs --interval-seconds 3600
+```
+
+Set `--skip-ragas` for faster retrieval-only monitoring.
 
 **Note on evaluation data:** `agentic-eval generate` creates a synthetic Q/A dataset from random chunks. If you need curated ground-truth, provide a JSON file in the same format (`question`, `ground_truth`, and optional metadata) and pass it to `agentic-eval evaluate`.
 
