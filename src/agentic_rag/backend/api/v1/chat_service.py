@@ -61,9 +61,8 @@ def _hash_parts(*parts: str) -> str:
         digest.update(part.encode("utf-8"))
     return digest.hexdigest()
 
-CLOSING_LINE = (
-    "\n\nIs there anything else I can help you with regarding PDPL compliance?"
-)
+
+CLOSING_LINE = "\n\nIs there anything else I can help you with regarding PDPL compliance?"
 
 SCOPE_REFUSAL = (
     "I specialize in PDPL and data protection topics only. "
@@ -214,8 +213,7 @@ def _fallback_rag_answer(citations: list[Citation]) -> str:
     """Fallback answer when the LLM is unavailable or times out."""
     if not citations:
         return (
-            "I'm having trouble generating a full answer right now. "
-            "Please try again in a moment."
+            "I'm having trouble generating a full answer right now. Please try again in a moment."
         )
 
     lines = [
@@ -271,9 +269,7 @@ def _get_user_prompt(query: str, context: str, history: str) -> str:
     cached = _cache_get(_PROMPT_CACHE, cache_key, ttl)
     if cached is not None:
         return cached
-    prompt = PromptRegistry.render(
-        "user_prompt", query=query, context=context, history=history
-    )
+    prompt = PromptRegistry.render("user_prompt", query=query, context=context, history=history)
     _cache_set(_PROMPT_CACHE, cache_key, prompt, max_size)
     return prompt
 
@@ -324,10 +320,7 @@ def _format_history(messages: list) -> str:
     max_size = settings.PROMPT_CACHE_MAX
     cache_key = _hash_parts(
         "history",
-        *[
-            f"{getattr(m.role, 'value', str(m.role))}:{(m.content or '')[:500]}"
-            for m in messages
-        ],
+        *[f"{getattr(m.role, 'value', str(m.role))}:{(m.content or '')[:500]}" for m in messages],
     )
     cached = _cache_get(_HISTORY_CACHE, cache_key, ttl)
     if cached is not None:

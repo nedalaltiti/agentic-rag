@@ -66,12 +66,15 @@ def get_tokenizer() -> Callable[[str], list[int]]:
                 from transformers import AutoTokenizer  # type: ignore[import-untyped]
 
                 hf_tok = AutoTokenizer.from_pretrained(
-                    repo, trust_remote_code=True, local_files_only=True,
+                    repo,
+                    trust_remote_code=True,
+                    local_files_only=True,
                 )
 
                 def _hf_encode(text: str) -> list[int]:
                     result: list[int] = hf_tok.encode(
-                        text, add_special_tokens=False,
+                        text,
+                        add_special_tokens=False,
                     )
                     return result
 
@@ -83,8 +86,7 @@ def get_tokenizer() -> Callable[[str], list[int]]:
                 return _hf_encode
             except Exception:
                 logger.warning(
-                    "HuggingFace tokenizer not found locally, "
-                    "falling back to cl100k_base",
+                    "HuggingFace tokenizer not found locally, falling back to cl100k_base",
                     repo=repo,
                 )
 

@@ -87,7 +87,10 @@ class StreamingRenderer:
             conv_answer = ""
             try:
                 async for chunk in ollama_chat_stream(
-                    conv_system, query, think=False, model=self._model,
+                    conv_system,
+                    query,
+                    think=False,
+                    model=self._model,
                 ):
                     if chunk.get("content"):
                         conv_answer += chunk["content"]
@@ -113,7 +116,9 @@ class StreamingRenderer:
         if route.kind == "agent":
             try:
                 answer, citations = await _agent_mode_response(
-                    query, route.session_id, model=self._model,
+                    query,
+                    route.session_id,
+                    model=self._model,
                 )
                 await memory.add_message("assistant", answer)
                 for idx, line in enumerate(answer.split("\n")):
@@ -122,10 +127,7 @@ class StreamingRenderer:
                     data = [c.model_dump(mode="json") for c in citations]
                     yield f"data: {json.dumps({'citations': data})}\n\n"
             except DependencyUnavailable as exc:
-                msg = (
-                    "Search service is temporarily unavailable. "
-                    "Please try again in a moment."
-                )
+                msg = "Search service is temporarily unavailable. Please try again in a moment."
                 logger.exception(
                     "Dependency unavailable", session_id=route.session_id, service=exc.service
                 )
@@ -163,10 +165,7 @@ class StreamingRenderer:
             yield self._sse_stop()
             return
         except DependencyUnavailable as exc:
-            msg = (
-                "Search service is temporarily unavailable. "
-                "Please try again in a moment."
-            )
+            msg = "Search service is temporarily unavailable. Please try again in a moment."
             logger.exception(
                 "Dependency unavailable", session_id=route.session_id, service=exc.service
             )

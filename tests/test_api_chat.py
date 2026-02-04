@@ -54,7 +54,6 @@ class TestOpenWebuiInternalRequest:
         assert is_internal is True
         assert "title" in resp
 
-
     @pytest.mark.asyncio
     async def test_generate_followup_default(self):
         """No assistant message → returns default questions."""

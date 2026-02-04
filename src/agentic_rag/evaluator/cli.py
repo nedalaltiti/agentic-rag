@@ -55,8 +55,7 @@ def evaluate(
     """Run retrieval+answer pipeline and compute RAGAS metrics."""
     _init_phoenix()
     console.print(
-        f"[bold]Evaluating:[/bold] {testset} -> {output} "
-        f"(rerank={rerank}, skip_ragas={skip_ragas})"
+        f"[bold]Evaluating:[/bold] {testset} -> {output} (rerank={rerank}, skip_ragas={skip_ragas})"
     )
     evaluate_sync(
         testset_path=testset,
@@ -101,9 +100,7 @@ def monitor(
     interval_seconds: int = typer.Option(
         settings.EVAL_INTERVAL_SECONDS, help="Interval between runs (seconds)"
     ),
-    max_runs: int | None = typer.Option(
-        None, help="Stop after N runs (default: run forever)"
-    ),
+    max_runs: int | None = typer.Option(None, help="Stop after N runs (default: run forever)"),
 ):
     """Continuously run evaluations at a fixed interval."""
     _init_phoenix()

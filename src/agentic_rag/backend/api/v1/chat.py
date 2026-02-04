@@ -87,13 +87,15 @@ async def _generate_followup_questions(
             break
 
     if not last_assistant:
-        return json.dumps({
-            "questions": [
-                "What are the key obligations under PDPL?",
-                "How does PDPL handle cross-border data transfers?",
-                "What are the penalties for non-compliance?",
-            ]
-        })
+        return json.dumps(
+            {
+                "questions": [
+                    "What are the key obligations under PDPL?",
+                    "How does PDPL handle cross-border data transfers?",
+                    "What are the penalties for non-compliance?",
+                ]
+            }
+        )
 
     prompt = (
         "Based on this assistant response, generate exactly 3 short follow-up "
@@ -115,13 +117,15 @@ async def _generate_followup_questions(
     except Exception:
         logger.debug("Follow-up generation failed, using defaults")
 
-    return json.dumps({
-        "questions": [
-            "What are the key obligations under PDPL?",
-            "How does PDPL handle cross-border data transfers?",
-            "What are the penalties for non-compliance?",
-        ]
-    })
+    return json.dumps(
+        {
+            "questions": [
+                "What are the key obligations under PDPL?",
+                "How does PDPL handle cross-border data transfers?",
+                "What are the penalties for non-compliance?",
+            ]
+        }
+    )
 
 
 async def _process_query(
@@ -152,7 +156,9 @@ async def _process_query(
     try:
         if route.kind == "agent":
             answer, citations = await _agent_mode_response(
-                query, session_id, model=model,
+                query,
+                session_id,
+                model=model,
             )
         else:
             used_fallback = False
@@ -187,10 +193,7 @@ async def _process_query(
         ) from None
     except DependencyUnavailable as exc:
         logger.exception("Dependency unavailable", service=getattr(exc, "service", None))
-        answer = (
-            "Search service is temporarily unavailable. "
-            "Please try again in a moment."
-        )
+        answer = "Search service is temporarily unavailable. Please try again in a moment."
         await memory.add_message("assistant", answer)
         return answer, []
     except Exception:
@@ -275,13 +278,16 @@ async def chat_completions(
                 OpenAIChatChoice(
                     index=0,
                     message=OpenAIChatMessage(
-                        role="assistant", content=followup_json,
+                        role="assistant",
+                        content=followup_json,
                     ),
                     finish_reason="stop",
                 )
             ],
             usage=TokenUsage(
-                prompt_tokens=0, completion_tokens=0, total_tokens=0,
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
             ),
         )
     use_agent_mode = _should_use_agent_mode(query, x_agent_mode)

@@ -146,9 +146,7 @@ async def store_cache(query: str, answer: str, citations: list[Citation]) -> Non
             :expires_at
         )
         """
-    ).bindparams(
-        bindparam("query_embedding", type_=Vector(settings.EMBEDDING_DIMENSION))
-    )
+    ).bindparams(bindparam("query_embedding", type_=Vector(settings.EMBEDDING_DIMENSION)))
 
     async with AsyncSessionLocal() as session:
         try:

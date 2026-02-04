@@ -168,8 +168,7 @@ class HybridRetriever(BaseRetriever):
         }
         if settings.KEYWORD_MIN_SCORE is not None:
             score_filter = (
-                "AND ts_rank(content_tsv, websearch_to_tsquery('simple', :query)) "
-                ">= :min_score"
+                "AND ts_rank(content_tsv, websearch_to_tsquery('simple', :query)) >= :min_score"
             )
             params["min_score"] = settings.KEYWORD_MIN_SCORE
         stmt = text(f"""

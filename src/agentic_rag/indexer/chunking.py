@@ -230,8 +230,7 @@ class ContextualChunker:
             misses = [p for p in prepared if p["chunk_hash"] not in cached_embeddings]
             if misses:
                 embed_tasks = [
-                    self.embed_model.aget_text_embedding(p["contextual_content"])
-                    for p in misses
+                    self.embed_model.aget_text_embedding(p["contextual_content"]) for p in misses
                 ]
                 miss_embeddings = await asyncio.gather(*embed_tasks)
                 for p, emb in zip(misses, miss_embeddings, strict=False):

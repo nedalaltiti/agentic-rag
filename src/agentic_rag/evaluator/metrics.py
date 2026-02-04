@@ -95,6 +95,7 @@ def _compute_retrieval_metrics(
     k: int,
 ) -> dict[str, float]:
     """Compute Recall@K, Precision@K, MRR, NDCG@K, HitRate using doc IDs (fallback to chunk IDs)."""
+
     def _unique_preserve_order(values: list[str]) -> list[str]:
         seen: set[str] = set()
         unique: list[str] = []
