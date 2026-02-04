@@ -234,7 +234,7 @@ class ContextualChunker:
                     for p in misses
                 ]
                 miss_embeddings = await asyncio.gather(*embed_tasks)
-                for p, emb in zip(misses, miss_embeddings):
+                for p, emb in zip(misses, miss_embeddings, strict=False):
                     p["embedding"] = emb
 
             # Attach cached embeddings

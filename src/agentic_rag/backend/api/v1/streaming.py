@@ -17,8 +17,8 @@ from agentic_rag.backend.api.v1.chat_service import (
     _format_sources_footer,
     _prepare_rag,
 )
-from agentic_rag.core.exceptions import DependencyUnavailable, IndexMismatchError
 from agentic_rag.backend.rag.semantic_cache import lookup_cache, store_cache
+from agentic_rag.core.exceptions import DependencyUnavailable, IndexMismatchError
 from agentic_rag.core.llm_factory import ollama_chat_stream
 from agentic_rag.core.prompts import PromptRegistry
 from agentic_rag.core.schemas import (
@@ -204,21 +204,19 @@ class StreamingRenderer:
                     full_answer += chunk["content"]
                     yield self._sse(chunk["content"])
 
-            if chunk.get("done"):
-                if in_thinking:
-                    yield self._sse("</think>")
-                break
+                if chunk.get("done"):
+                    if in_thinking:
+                        yield self._sse("</think>")
+                    break
 
-            # No-op; we handle sources after stream ends
+            sources_footer = _format_sources_footer(rag_payload.citations)
+            if sources_footer:
+                yield self._sse(sources_footer)
+                full_answer += sources_footer
 
-        sources_footer = _format_sources_footer(rag_payload.citations)
-        if sources_footer:
-            yield self._sse(sources_footer)
-            full_answer += sources_footer
-
-        yield self._sse(CLOSING_LINE)
-        full_answer += CLOSING_LINE
-        await memory.add_message("assistant", full_answer)
+            yield self._sse(CLOSING_LINE)
+            full_answer += CLOSING_LINE
+            await memory.add_message("assistant", full_answer)
             await store_cache(query, full_answer, rag_payload.citations)
         except Exception:
             logger.exception("Streaming failed", session_id=route.session_id)

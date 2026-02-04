@@ -149,7 +149,11 @@ class HybridRetriever(BaseRetriever):
             result = await session.execute(stmt, params)
             return result.fetchall()
         except SQLAlchemyError as e:
-            raise DependencyUnavailable("database", "vector search failed", {"error": str(e)}) from e
+            raise DependencyUnavailable(
+                "database",
+                "vector search failed",
+                {"error": str(e)},
+            ) from e
 
     async def _keyword_search(self, session, query: str):
         """Lexical search with type-safe bindings."""
@@ -192,7 +196,11 @@ class HybridRetriever(BaseRetriever):
             result = await session.execute(stmt, params)
             return result.fetchall()
         except SQLAlchemyError as e:
-            raise DependencyUnavailable("database", "keyword search failed", {"error": str(e)}) from e
+            raise DependencyUnavailable(
+                "database",
+                "keyword search failed",
+                {"error": str(e)},
+            ) from e
 
     async def _get_query_embedding(self, query: str) -> list[float]:
         """Best-effort LRU cache for query embeddings."""

@@ -27,7 +27,7 @@ class LLMReranker:
         self.llm = get_llm(request_timeout=settings.RERANKER_TIMEOUT)
         self.top_n = settings.TOP_K_RERANK
         self._semaphore = asyncio.Semaphore(5)
-        self._score_cache: "OrderedDict[str, tuple[float, float]]" = OrderedDict()
+        self._score_cache: OrderedDict[str, tuple[float, float]] = OrderedDict()
 
     async def rerank(self, query: str, nodes: list[NodeWithScore]) -> list[NodeWithScore]:
         """
@@ -62,7 +62,7 @@ class LLMReranker:
         """Score a single node using LLM."""
         passage = node.node.get_content()[:500]
 
-        cache_key = hashlib.sha256(f"{query}\n{passage}".encode("utf-8")).hexdigest()
+        cache_key = hashlib.sha256(f"{query}\n{passage}".encode()).hexdigest()
         ttl = settings.RERANK_CACHE_TTL
         now = time.monotonic()
         if ttl > 0:

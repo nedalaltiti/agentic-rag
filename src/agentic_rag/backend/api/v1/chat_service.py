@@ -14,9 +14,9 @@ import structlog
 
 from agentic_rag.backend.rag.reranker import LLMReranker
 from agentic_rag.backend.rag.retriever import HybridRetriever
-from agentic_rag.core.exceptions import DependencyUnavailable, IndexMismatchError
 from agentic_rag.core.citations import format_citations
 from agentic_rag.core.config import settings
+from agentic_rag.core.exceptions import DependencyUnavailable, IndexMismatchError
 from agentic_rag.core.llm_factory import ollama_chat_with_thinking
 from agentic_rag.core.memory import ConversationMemory
 from agentic_rag.core.prompts import PromptRegistry
@@ -25,12 +25,12 @@ from agentic_rag.core.scope_gate import ScopeGate
 
 logger = structlog.get_logger()
 
-_PROMPT_CACHE: "OrderedDict[str, tuple[str, float]]" = OrderedDict()
-_CONTEXT_CACHE: "OrderedDict[str, tuple[str, float]]" = OrderedDict()
-_HISTORY_CACHE: "OrderedDict[str, tuple[str, float]]" = OrderedDict()
+_PROMPT_CACHE: OrderedDict[str, tuple[str, float]] = OrderedDict()
+_CONTEXT_CACHE: OrderedDict[str, tuple[str, float]] = OrderedDict()
+_HISTORY_CACHE: OrderedDict[str, tuple[str, float]] = OrderedDict()
 
 
-def _cache_get(cache: OrderedDict, key: str, ttl: int) -> str | None:
+def _cache_get(cache: OrderedDict[str, tuple[str, float]], key: str, ttl: int) -> str | None:
     if ttl <= 0:
         return None
     cached = cache.get(key)
@@ -44,7 +44,12 @@ def _cache_get(cache: OrderedDict, key: str, ttl: int) -> str | None:
     return value
 
 
-def _cache_set(cache: OrderedDict, key: str, value: str, max_size: int) -> None:
+def _cache_set(
+    cache: OrderedDict[str, tuple[str, float]],
+    key: str,
+    value: str,
+    max_size: int,
+) -> None:
     cache[key] = (value, time.monotonic())
     if len(cache) > max_size:
         cache.popitem(last=False)

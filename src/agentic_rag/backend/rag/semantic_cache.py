@@ -3,12 +3,12 @@
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import datetime, timedelta, timezone
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 import structlog
-from sqlalchemy import Integer, bindparam, text
 from pgvector.sqlalchemy import Vector
+from sqlalchemy import Integer, bindparam, text
 
 from agentic_rag.backend.rag.query_embedding import get_query_embedding
 from agentic_rag.core.config import settings
@@ -120,7 +120,7 @@ async def store_cache(query: str, answer: str, citations: list[Citation]) -> Non
         logger.warning("Semantic cache embedding failed", error=str(e))
         return
 
-    expires_at = datetime.now(timezone.utc) + timedelta(seconds=ttl)
+    expires_at = datetime.now(UTC) + timedelta(seconds=ttl)
     citations_payload = [c.model_dump(mode="json") for c in citations]
 
     delete_stmt = text("DELETE FROM semantic_cache WHERE expires_at <= NOW()")
