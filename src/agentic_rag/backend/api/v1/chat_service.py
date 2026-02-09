@@ -163,7 +163,7 @@ async def _conversational_response(query: str, model: str | None = None) -> str:
     )
 
     try:
-        _, content = await ollama_chat_with_thinking(
+        _, content, _ = await ollama_chat_with_thinking(
             system_prompt=system_prompt,
             user_message=query,
             think=False,
@@ -176,19 +176,21 @@ async def _conversational_response(query: str, model: str | None = None) -> str:
 
 def _is_openwebui_internal_request(query: str) -> tuple[bool, str]:
     """Detect and short-circuit OpenWebUI internal requests."""
-    query_lower = query.strip().lower()
+    stripped = query.strip()
+    if not (stripped.startswith("### Task:") or stripped.startswith("###Task:")):
+        return False, ""
+
+    query_lower = stripped.lower()
     app_name = settings.APP_NAME
 
-    if "### task:" in query_lower and "title" in query_lower and "emoji" in query_lower:
+    if "title" in query_lower:
         return True, f'{{"title": "{app_name} Chat"}}'
 
-    if "### task:" in query_lower and ("tags" in query_lower or "classify" in query_lower):
+    if "tags" in query_lower or "classify" in query_lower:
         return True, '{"tags": ["rag", "knowledge-base", "assistant"]}'
 
-    if query.strip().startswith("### Task:") or query.strip().startswith("###Task:"):
-        return True, "OK"
-
-    return False, ""
+    # Catch-all for any other OpenWebUI internal task
+    return True, "OK"
 
 
 def _format_context_for_llm(citations: list[Citation]) -> str:
@@ -369,10 +371,17 @@ async def _fast_rag_response(
     model: str | None = None,
     system_prompt: str | None = None,
     user_prompt: str | None = None,
-) -> str:
-    """Single LLM call with retrieved context (default path)."""
+) -> tuple[str, dict[str, int]]:
+    """Single LLM call with retrieved context (default path).
+
+    Returns (answer, token_usage).
+    """
     if not citations:
-        return "No relevant information found in the knowledge base."
+        return "No relevant information found in the knowledge base.", {
+            "prompt_tokens": 0,
+            "completion_tokens": 0,
+            "total_tokens": 0,
+        }
 
     if system_prompt is None or user_prompt is None:
         context = _format_context_for_llm(citations)
@@ -381,7 +390,7 @@ async def _fast_rag_response(
         system_prompt = _get_system_prompt()
         user_prompt = _get_user_prompt(query, context, history_text)
 
-    thinking, content = await ollama_chat_with_thinking(
+    thinking, content, usage = await ollama_chat_with_thinking(
         system_prompt=system_prompt,
         user_message=user_prompt,
         think=True,
@@ -395,7 +404,13 @@ async def _fast_rag_response(
     answer += _format_sources_footer(citations)
     answer += CLOSING_LINE
 
-    return answer
+    logger.info(
+        "Token usage",
+        prompt_tokens=usage["prompt_tokens"],
+        completion_tokens=usage["completion_tokens"],
+    )
+
+    return answer, usage
 
 
 async def _agent_mode_response(
@@ -407,21 +422,34 @@ async def _agent_mode_response(
     from agentic_rag.backend.crew.runner import CrewRunner
 
     runner = CrewRunner(session_id, model=model)
+    timeout = settings.CREWAI_TIMEOUT
     try:
-        answer, tool_citations = await asyncio.to_thread(runner.kickoff, query)
+        answer, tool_citations = await asyncio.wait_for(
+            asyncio.to_thread(runner.kickoff, query),
+            timeout=timeout,
+        )
+    except TimeoutError:
+        logger.error(
+            "Agent timed out; falling back to direct RAG",
+            session_id=session_id,
+            timeout=timeout,
+        )
+        answer, tool_citations = "", []
     except Exception:
-        logger.exception("Agent execution failed; falling back to retrieval", session_id=session_id)
+        logger.exception(
+            "Agent execution failed; falling back to direct RAG", session_id=session_id
+        )
         answer, tool_citations = "", []
 
     if not tool_citations:
         logger.warning(
-            "Agent returned no citations; falling back to retrieval",
+            "Agent produced no citations; falling back to direct RAG",
             session_id=session_id,
         )
         fallback_citations = await _retrieve_and_rerank(query, use_reranker=True)
         if fallback_citations:
             try:
-                fallback_answer = await _fast_rag_response(
+                fallback_answer, _ = await _fast_rag_response(
                     query,
                     fallback_citations,
                     history=None,
@@ -498,7 +526,7 @@ async def _route_decision(
 async def _prepare_rag(memory: ConversationMemory, query: str) -> RagPayload:
     """Prepare RAG inputs (retrieval + prompt rendering)."""
     citations = await _retrieve_and_rerank(query, use_reranker=False)
-    history = await memory.get_history(limit=5)
+    history = await memory.get_history(limit=settings.CONVERSATION_HISTORY_LIMIT)
     context = _format_context_for_llm(citations)
     history_text = _format_history(history)
 

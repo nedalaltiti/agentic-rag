@@ -106,7 +106,9 @@ class StreamingRenderer:
                         "What would you like to know?"
                     )
                     yield self._sse(conv_answer)
-            await memory.add_message("assistant", conv_answer)
+            finally:
+                if conv_answer:
+                    await memory.add_message("assistant", conv_answer)
             yield self._sse_stop()
             return
 
@@ -187,6 +189,7 @@ class StreamingRenderer:
 
         full_answer = ""
         in_thinking = True
+        stream_completed = False
 
         try:
             async for chunk in ollama_chat_stream(
@@ -217,6 +220,7 @@ class StreamingRenderer:
 
             yield self._sse(CLOSING_LINE)
             full_answer += CLOSING_LINE
+            stream_completed = True
             await memory.add_message("assistant", full_answer)
             await store_cache(query, full_answer, rag_payload.citations)
         except Exception:
@@ -225,12 +229,17 @@ class StreamingRenderer:
                 yield self._sse("</think>")
             fallback = _fallback_rag_answer(rag_payload.citations)
             yield self._sse(fallback)
+            full_answer = fallback
+            stream_completed = True
             await memory.add_message("assistant", fallback)
             if rag_payload.citations:
                 data = [c.model_dump(mode="json") for c in rag_payload.citations]
                 yield f"data: {json.dumps({'citations': data})}\n\n"
             yield self._sse_stop()
             return
+        finally:
+            if not stream_completed and full_answer:
+                await memory.add_message("assistant", full_answer)
 
         if rag_payload.citations:
             data = [c.model_dump(mode="json") for c in rag_payload.citations]

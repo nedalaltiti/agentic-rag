@@ -9,6 +9,7 @@ from pydantic import Field, PrivateAttr
 from agentic_rag.backend.rag.reranker import LLMReranker
 from agentic_rag.backend.rag.retriever import HybridRetriever
 from agentic_rag.core.citations import format_citations
+from agentic_rag.core.config import settings
 from agentic_rag.core.memory import ConversationMemory
 from agentic_rag.core.schemas import Citation
 
@@ -103,7 +104,7 @@ class MemoryLookupTool(BaseTool):
 
             async def _execute():
                 memory = ConversationMemory(self.session_id)
-                return await memory.get_history(limit=5)
+                return await memory.get_history(limit=settings.CONVERSATION_HISTORY_LIMIT)
 
             history = run_async_safely(_execute)
 

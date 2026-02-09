@@ -1,6 +1,7 @@
 """OpenAI-compatible chat completions endpoint."""
 
 import json
+import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
@@ -36,17 +37,21 @@ logger = structlog.get_logger()
 
 router = APIRouter(tags=["chat"])
 
-AGENT_MODE_KEYWORDS = {
-    "compare",
-    "plan",
-    "steps",
-    "analyze in detail",
-    "based on our previous",
-    "use agent",
-    "multi-step",
-    "research and",
-    "investigate",
-}
+# Patterns that trigger agent (multi-step) mode.  Each is compiled as a
+# word-boundary regex so "compare" won't match inside "incomparable".
+_AGENT_MODE_PATTERNS = [
+    re.compile(r"\b" + p + r"\b", re.IGNORECASE)
+    for p in [
+        r"compare",
+        r"analyze in detail",
+        r"based on our previous",
+        r"use agent",
+        r"multi-step",
+        r"research and",
+        r"investigate",
+        r"step[- ]by[- ]step",
+    ]
+]
 
 
 def _get_session_id(
@@ -65,14 +70,14 @@ def _should_use_agent_mode(query: str, agent_header: str | None) -> bool:
     if not settings.USE_CREWAI:
         return False
 
-    if query.strip().startswith("### Task:") or query.strip().startswith("###"):
+    stripped = query.strip()
+    if stripped.startswith("### Task:") or stripped.startswith("###Task:"):
         return False
 
     if agent_header and agent_header.lower() == "true":
         return True
 
-    query_lower = query.lower()
-    return any(kw in query_lower for kw in AGENT_MODE_KEYWORDS)
+    return any(p.search(query) for p in _AGENT_MODE_PATTERNS)
 
 
 async def _generate_followup_questions(
@@ -104,7 +109,7 @@ async def _generate_followup_questions(
     )
 
     try:
-        _, content = await ollama_chat_with_thinking(
+        _, content, _ = await ollama_chat_with_thinking(
             system_prompt="You generate follow-up questions. Reply with JSON only.",
             user_message=prompt,
             think=False,
@@ -119,17 +124,20 @@ async def _generate_followup_questions(
     return json.dumps({"questions": default_questions})
 
 
+_ZERO_USAGE: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
+
+
 async def _process_query(
     query: str,
     session_id: str,
     use_agent_mode: bool = False,
     model: str | None = None,
-) -> tuple[str, list[Citation]]:
+) -> tuple[str, list[Citation], dict[str, int]]:
     """Route query once, then render response for non-streaming clients."""
     route = await _route_decision(query, session_id, use_agent_mode)
 
     if route.kind == "internal":
-        return route.internal_response, []
+        return route.internal_response, [], _ZERO_USAGE
 
     memory = route.memory
     if memory is None:
@@ -138,12 +146,13 @@ async def _process_query(
     if route.kind == "conversational":
         answer = await _conversational_response(query, model=model)
         await memory.add_message("assistant", answer)
-        return answer, []
+        return answer, [], _ZERO_USAGE
 
     if route.kind == "scope_refusal":
         await memory.add_message("assistant", SCOPE_REFUSAL)
-        return SCOPE_REFUSAL, []
+        return SCOPE_REFUSAL, [], _ZERO_USAGE
 
+    usage = _ZERO_USAGE
     try:
         if route.kind == "agent":
             answer, citations = await _agent_mode_response(
@@ -156,12 +165,12 @@ async def _process_query(
             cached = await lookup_cache(query)
             if cached is not None:
                 await memory.add_message("assistant", cached.answer)
-                return cached.answer, cached.citations
+                return cached.answer, cached.citations, _ZERO_USAGE
 
             rag_payload = await _prepare_rag(memory, query)
             citations = rag_payload.citations
             try:
-                answer = await _fast_rag_response(
+                answer, usage = await _fast_rag_response(
                     query,
                     citations,
                     history=rag_payload.history,
@@ -186,7 +195,7 @@ async def _process_query(
         logger.exception("Dependency unavailable", service=getattr(exc, "service", None))
         answer = "Search service is temporarily unavailable. Please try again in a moment."
         await memory.add_message("assistant", answer)
-        return answer, []
+        return answer, [], _ZERO_USAGE
     except Exception:
         logger.exception("Response generation failed", session_id=session_id)
         raise HTTPException(status_code=500, detail="Failed to generate response") from None
@@ -195,7 +204,7 @@ async def _process_query(
     if route.kind == "rag" and not used_fallback and citations:
         await store_cache(query, answer, citations)
 
-    return answer, citations
+    return answer, citations, usage
 
 
 async def _stream_with_thinking(
@@ -248,7 +257,7 @@ async def chat_completions(
 
     # Handle follow-up questions request from Open WebUI
     query_lower = query.strip().lower()
-    if "### task:" in query_lower and "follow-up questions" in query_lower:
+    if query_lower.startswith("### task:") and "follow-up" in query_lower:
         followup_json = await _generate_followup_questions(request.messages)
         if should_stream:
             from agentic_rag.backend.api.v1.streaming import StreamingRenderer
@@ -310,7 +319,7 @@ async def chat_completions(
     response.headers["X-Session-Id"] = session_id
 
     try:
-        answer, citations = await _process_query(
+        answer, citations, usage = await _process_query(
             query,
             session_id,
             use_agent_mode,
@@ -334,9 +343,9 @@ async def chat_completions(
             )
         ],
         usage=TokenUsage(
-            prompt_tokens=len(query.split()),
-            completion_tokens=len(answer.split()),
-            total_tokens=len(query.split()) + len(answer.split()),
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
+            total_tokens=usage["total_tokens"],
         ),
         citations=citations,
     )

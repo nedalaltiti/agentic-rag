@@ -260,6 +260,7 @@ The agent's text response typically includes inline citations.
 
 ## Known limitations (current)
 
+* **No API authentication** — the backend API (port 8000) has no auth layer. OpenWebUI (port 3000) is the intended user-facing entry point and provides its own authentication. In production, remove the backend port mapping and place it behind a reverse proxy or API gateway.
 * PDFs with complex tables/scans depend heavily on Docling parsing quality.
 * Retrieval quality depends on chunking + embedding model choice.
 * First launch may take several minutes while Ollama models are downloaded.

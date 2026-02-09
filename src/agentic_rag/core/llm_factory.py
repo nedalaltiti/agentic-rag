@@ -22,7 +22,7 @@ def get_llm(request_timeout: float = 300.0) -> Ollama:
         model=settings.LLM_MODEL,
         base_url=settings.OLLAMA_BASE_URL,
         request_timeout=request_timeout,
-        temperature=0.0,
+        temperature=settings.LLM_TEMPERATURE,
         context_window=8192,
     )
 
@@ -104,10 +104,11 @@ async def ollama_chat_with_thinking(
     user_message: str,
     think: bool = True,
     model: str | None = None,
-) -> tuple[str, str]:
+) -> tuple[str, str, dict[str, int]]:
     """Call Ollama chat API directly with thinking support.
 
-    Returns (thinking_text, content_text).
+    Returns (thinking_text, content_text, token_usage).
+    token_usage has keys: prompt_tokens, completion_tokens, total_tokens.
     """
     payload = {
         "model": model or settings.LLM_MODEL,
@@ -118,7 +119,7 @@ async def ollama_chat_with_thinking(
         "stream": False,
         "think": think,
         "options": {
-            "temperature": 0.0,
+            "temperature": settings.LLM_TEMPERATURE,
             "num_ctx": 8192,
         },
     }
@@ -134,7 +135,14 @@ async def ollama_chat_with_thinking(
     msg = data.get("message", {})
     thinking = msg.get("thinking", "") or ""
     content = msg.get("content", "") or ""
-    return thinking, content
+    prompt_tokens = data.get("prompt_eval_count", 0)
+    completion_tokens = data.get("eval_count", 0)
+    usage = {
+        "prompt_tokens": prompt_tokens,
+        "completion_tokens": completion_tokens,
+        "total_tokens": prompt_tokens + completion_tokens,
+    }
+    return thinking, content, usage
 
 
 async def ollama_chat_stream(
@@ -156,7 +164,7 @@ async def ollama_chat_stream(
         "stream": True,
         "think": think,
         "options": {
-            "temperature": 0.0,
+            "temperature": settings.LLM_TEMPERATURE,
             "num_ctx": 8192,
         },
     }

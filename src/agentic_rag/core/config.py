@@ -30,10 +30,11 @@ class Settings(BaseSettings):
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000
     FORCE_STREAMING: bool = False
+    CONVERSATION_HISTORY_LIMIT: int = 10
 
     # Database (Postgres + PGVector)
     # Typed as str to avoid Pydantic validation issues with 'postgresql+asyncpg' scheme
-    DATABASE_URL: str = Field(default="postgresql+asyncpg://postgres:postgres@postgres:5432/ragdb")
+    DATABASE_URL: str = Field(default="postgresql+asyncpg://postgres:changeme@postgres:5432/ragdb")
     DB_POOL_SIZE: int = 20
     DB_MAX_OVERFLOW: int = 10
 
@@ -50,6 +51,7 @@ class Settings(BaseSettings):
     # LLM & Embedding (Ollama)
     OLLAMA_BASE_URL: str = "http://ollama:11434"
     LLM_MODEL: str = "qwen3:1.7b"
+    LLM_TEMPERATURE: float = 0.0
     EMBEDDING_MODEL: str = "qwen3-embedding:0.6b"
     # Must match the output dimension of EMBEDDING_MODEL and the DB schema
     # (migrations/002_create_tables.sql: vector(1024)).
@@ -71,10 +73,13 @@ class Settings(BaseSettings):
     # Higher values improve recall but increase latency.
     HNSW_EF_SEARCH: int | None = None
     USE_CREWAI: bool = True
+    CREWAI_TIMEOUT: int = 120  # seconds; agent is killed and falls back to RAG
+    SCOPE_GATE_THRESHOLD: float = 0.55
     EVAL_MODEL: str = "qwen3:4b"
     RRF_WEIGHT_VECTOR: float = 1.0
     RRF_WEIGHT_KEYWORD: float = 1.5
     RERANKER_TIMEOUT: float = 30.0
+    RERANKER_MAX_PASSAGE_CHARS: int = 2000
     # Reranker cache (reduces repeat LLM calls on similar queries)
     RERANK_CACHE_TTL: int = 900  # seconds
     RERANK_CACHE_MAX: int = 512

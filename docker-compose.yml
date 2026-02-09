@@ -3,15 +3,15 @@ services:
     image: pgvector/pgvector:pg16
     container_name: ragdb
     environment:
-      POSTGRES_USER: postgres
-      POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: ragdb
+      POSTGRES_USER: ${POSTGRES_USER:-postgres}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-changeme}
+      POSTGRES_DB: ${POSTGRES_DB:-ragdb}
     ports:
       - "5433:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d ragdb"]
+      test: ["CMD-SHELL", "pg_isready -U $${POSTGRES_USER:-postgres} -d $${POSTGRES_DB:-ragdb}"]
       interval: 5s
       timeout: 3s
       retries: 20
@@ -67,11 +67,11 @@ services:
       dockerfile: docker/backend.Dockerfile
     container_name: backend
     ports:
-      - "8000:8000"
+      - "8000:8000"  # No auth — intended for local dev. In production, remove this port and front with a reverse proxy.
     volumes:
       - ./data:/app/data
     environment:
-      DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ragdb
+      DATABASE_URL: postgresql+asyncpg://${POSTGRES_USER:-postgres}:${POSTGRES_PASSWORD:-changeme}@postgres:5432/${POSTGRES_DB:-ragdb}
       OLLAMA_BASE_URL: http://ollama:11434
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006/v1/traces
       PHOENIX_API_URL: http://phoenix:6006
@@ -99,7 +99,7 @@ services:
       - "3000:8080"
     environment:
       OPENAI_API_BASE_URL: http://backend:8000/v1
-      OPENAI_API_KEY: "dummy"
+      OPENAI_API_KEY: "not-used"  # Backend has no auth; OpenWebUI requires a non-empty value
       ENABLE_OLLAMA_API: "false"
       ENABLE_PERSISTENT_CONFIG: "false"
     volumes:

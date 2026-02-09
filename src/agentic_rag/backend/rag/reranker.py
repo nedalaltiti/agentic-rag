@@ -60,7 +60,7 @@ class LLMReranker:
 
     async def _score_node(self, query: str, node: NodeWithScore) -> NodeWithScore:
         """Score a single node using LLM."""
-        passage = node.node.get_content()[:500]
+        passage = node.node.get_content()[: settings.RERANKER_MAX_PASSAGE_CHARS]
 
         cache_key = hashlib.sha256(f"{query}\n{passage}".encode()).hexdigest()
         ttl = settings.RERANK_CACHE_TTL

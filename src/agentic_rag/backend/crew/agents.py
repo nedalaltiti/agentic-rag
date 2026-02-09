@@ -17,7 +17,7 @@ def _get_llm(model_name: str | None = None) -> LLM:
     return LLM(
         model=f"ollama/{model_name or settings.LLM_MODEL}",
         base_url=settings.OLLAMA_BASE_URL,
-        temperature=0.0,
+        temperature=settings.LLM_TEMPERATURE,
     )
 
 

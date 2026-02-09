@@ -21,6 +21,7 @@ class PromptRegistry:
     _env = Environment(loader=FileSystemLoader(PROMPTS_DIR), autoescape=False)
     _client = None
     _synced = False
+    sync_failures: list[str] = []
 
     @classmethod
     def _ensure_client(cls):
@@ -81,8 +82,9 @@ class PromptRegistry:
             pv = client.prompts.get(prompt_identifier=name, tag=settings.PHOENIX_PROMPT_TAG)
             return str(pv.template)
         except Exception as e:
-            logger.warning(
-                "Failed to fetch prompt from Phoenix; using local fallback",
+            logger.error(
+                "Failed to fetch prompt from Phoenix; using local fallback — "
+                "production may be serving stale prompts",
                 prompt=name,
                 tag=settings.PHOENIX_PROMPT_TAG,
                 error=str(e),
@@ -112,6 +114,7 @@ class PromptRegistry:
             logger.warning("Phoenix PromptVersion type not available", error=str(e))
             return
 
+        cls.sync_failures = []
         for name in cls.list_local_prompts():
             try:
                 template_src = cls.get_raw_local(name)
@@ -151,4 +154,13 @@ class PromptRegistry:
                 logger.info("Prompt synced", prompt=name, version_id=getattr(created, "id", None))
 
             except Exception as e:
-                logger.warning("Prompt sync failed (non-blocking)", prompt=name, error=str(e))
+                cls.sync_failures.append(name)
+                log = logger.error if settings.ENVIRONMENT == "prod" else logger.warning
+                log("Prompt sync failed", prompt=name, error=str(e))
+
+        if cls.sync_failures:
+            log = logger.error if settings.ENVIRONMENT == "prod" else logger.warning
+            log(
+                "Some prompts failed to sync — production may serve stale versions",
+                failed=cls.sync_failures,
+            )

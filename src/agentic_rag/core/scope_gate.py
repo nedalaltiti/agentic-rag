@@ -7,12 +7,12 @@ from pathlib import Path
 import numpy as np
 import structlog
 
+from agentic_rag.core.config import settings
 from agentic_rag.core.llm_factory import get_embedding_model
 
 logger = structlog.get_logger()
 
 ANCHORS_FILE = Path(__file__).resolve().parent.parent / "prompts" / "scope_anchors.txt"
-SIMILARITY_THRESHOLD = 0.5
 
 
 class ScopeGate:
@@ -66,7 +66,7 @@ class ScopeGate:
         similarities = anchor_norms @ query_norm
         max_sim = float(np.max(similarities))
 
-        in_scope = max_sim >= SIMILARITY_THRESHOLD
+        in_scope = max_sim >= settings.SCOPE_GATE_THRESHOLD
         logger.info(
             "Scope gate check",
             query=query[:60],

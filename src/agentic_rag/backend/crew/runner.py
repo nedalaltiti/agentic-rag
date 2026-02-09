@@ -122,6 +122,20 @@ class CrewRunner:
             verbose=True,
         )
 
-        result = rag_crew.kickoff()
+        crew_output = rag_crew.kickoff()
+        answer = str(crew_output)
         citations = self.db_tool.get_last_citations()
-        return str(result), citations
+
+        # Guard: if the agent skipped tool use but still produced text,
+        # force a retrieval and re-write with actual context.
+        if not citations and "no relevant information" not in answer.lower():
+            logger.warning(
+                "Agent skipped tool invocation, forcing retrieval fallback",
+                session_id=self.session_id,
+            )
+            tool_output = self.db_tool._run(safe_query)
+            citations = self.db_tool.get_last_citations()
+            if citations:
+                answer = self.kickoff_with_context(safe_query, tool_output)
+
+        return answer, citations

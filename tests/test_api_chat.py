@@ -192,7 +192,11 @@ class TestChatCompletionsEndpoint:
     @patch(
         "agentic_rag.backend.api.v1.chat._process_query",
         new_callable=AsyncMock,
-        return_value=("PDPL is a data protection law.", []),
+        return_value=(
+            "PDPL is a data protection law.",
+            [],
+            {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        ),
     )
     def test_chat_completions_ok(self, mock_pq, client):
         resp = client.post(
@@ -217,7 +221,11 @@ class TestChatCompletionsEndpoint:
     @patch(
         "agentic_rag.backend.api.v1.chat._process_query",
         new_callable=AsyncMock,
-        return_value=("PDPL is a data protection law.", []),
+        return_value=(
+            "PDPL is a data protection law.",
+            [],
+            {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+        ),
     )
     def test_model_respected_in_response(self, mock_pq, client):
         """request.model is reflected in the response."""
