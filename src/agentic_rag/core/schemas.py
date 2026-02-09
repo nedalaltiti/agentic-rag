@@ -59,7 +59,7 @@ class OpenAIChatRequest(BaseModel):
     model: str | None = None  # Optional: default to settings.LLM_MODEL
     messages: list[OpenAIChatMessage]
     stream: bool = False
-    temperature: float = 0.7
+    temperature: float = 0.0
     max_tokens: int | None = None
     top_p: float = 1.0
 

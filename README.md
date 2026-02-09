@@ -1,8 +1,6 @@
 # Agentic RAG (OpenWebUI + pgvector + Ollama)
 
-This repo is a small, end-to-end **agentic RAG** system built for a case study: ingest PDFs, store embeddings in **Postgres/pgvector**, answer questions through an **OpenAI-compatible** API so it plugs into **OpenWebUI**, and keep the whole thing observable in **Arize Phoenix**.
-
-It’s intentionally “boring” in the good way: reproducible Docker setup, clear module boundaries (indexer / backend / evaluator), and enough instrumentation to debug retrieval and prompt issues.
+This repo is an end-to-end **agentic RAG** system: ingest PDFs, store embeddings in **Postgres/pgvector**, answer questions through an **OpenAI-compatible** API for **OpenWebUI**, and trace activity in **Arize Phoenix**.
 
 ## What’s included
 
@@ -11,7 +9,19 @@ It’s intentionally “boring” in the good way: reproducible Docker setup, cl
 * **Evaluator CLI** (RAGAS metrics over a generated/curated test set)
 * **Observability** (Phoenix traces for retrieval + tool calls)
 
-## Demo flow (the one reviewers can follow)
+## Design choices (at a glance)
+
+| Area | Choice | Where |
+|------|--------|-------|
+| REST API contract | OpenAI-compatible (`/v1/chat/completions`, `/v1/models`) | `src/agentic_rag/backend/api/v1/` |
+| Chunking strategy | Heading-first contextual chunking with optional LLM context | `src/agentic_rag/indexer/chunking.py` |
+| Embedding model | `qwen3-embedding:0.6b` (Ollama) | `.env.example` |
+| LLM model | `qwen3:1.7b` (Ollama) | `.env.example` |
+| Retrieval | Hybrid (pgvector + Postgres full-text) with RRF fusion | `src/agentic_rag/backend/rag/retriever.py` |
+| Re-ranking | LLM reranker (Ollama) | `src/agentic_rag/backend/rag/reranker.py` |
+| Agent prompts | Jinja2 prompts synced to Phoenix | `src/agentic_rag/prompts/` |
+
+## Demo flow
 
 1. Start the stack
 2. Drop PDFs into `data/raw/`
@@ -31,6 +41,35 @@ docker compose up -d
 curl http://localhost:8000/health
 ```
 
+On first launch the `ollama-init` service automatically pulls the models
+defined in `.env` (`LLM_MODEL` and `EMBEDDING_MODEL`), and the backend
+applies SQL migrations on startup — no manual steps required.
+
+### Index the sample documents
+
+The repo includes PDPL (Personal Data Protection Law) documents in `data/sample/`.
+To index them so the chatbot can answer questions:
+
+```bash
+docker compose exec backend agentic-index --source data/sample/
+```
+
+Then open **http://localhost:3000** (OpenWebUI) and ask questions like
+*"What is PDPL?"* or *"What are the rules for transferring personal data outside the Kingdom?"*
+
+> **Mac with host Ollama (Metal GPU):** Use the compose override to skip the
+> containerised Ollama and its init job:
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.mac.yml up -d
+> ```
+> You must pull the models yourself: `ollama pull qwen3:1.7b && ollama pull qwen3-embedding:0.6b`
+
+> **Full reset:** To wipe all data and start fresh:
+> ```bash
+> docker compose down -v          # removes containers + volumes
+> docker compose up -d            # recreates everything
+> ```
+
 > **Local Development (outside Docker):** The `.env.example` uses Docker service names
 > (`postgres`, `ollama`, `phoenix`). If running locally without Docker, update these to
 > `localhost` in your `.env` file. Note: if Docker Compose is running, Postgres is on
@@ -48,6 +87,10 @@ Put PDFs in `data/raw/` then:
 ```bash
 agentic-index --source data/raw/
 ```
+
+**Index versioning:** If you change the embedding model, tokenizer, or chunking settings, bump
+`INDEX_VERSION` (in `.env`) and re-run the indexer. This keeps retrieval aligned to the
+correct embedding space.
 
 **Chunking modes:**
 
@@ -70,9 +113,20 @@ The backend exposes:
 * `POST /v1/chat/completions`
 * `GET /docs` — interactive Swagger UI
 
+### Ollama modes
+
+1. **Default (portable):** Use the Ollama container. `OLLAMA_BASE_URL=http://ollama:11434`
+2. **Optional (Mac speed):** Use host Ollama with Metal acceleration:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mac.yml up -d
+```
+
 ### Evaluate (RAGAS)
 
 ```bash
+# Make sure evaluator model is pulled
+ollama pull qwen3:4b
+
 # 1. Generate a synthetic test set from indexed chunks
 agentic-eval generate --num-samples 10 --output eval_testset.json
 
@@ -83,14 +137,26 @@ agentic-eval evaluate --testset eval_testset.json --output eval_results.json
 agentic-eval report --results eval_results.json
 ```
 
-RAGAS evaluation uses a **separate evaluator model** (`EVAL_MODEL`, default: `prometheus2:7b`) to avoid self-evaluation bias — the chat model does not judge its own output. Pull it before running evaluation:
+### Continuous evaluation (monitoring)
+
+Run evaluations on a schedule to monitor retrieval quality over time:
+
+```bash
+agentic-eval monitor --testset eval_testset.json --output-dir eval_runs --interval-seconds 3600
+```
+
+Set `--skip-ragas` for faster retrieval-only monitoring.
+
+**Note on evaluation data:** `agentic-eval generate` creates a synthetic Q/A dataset from random chunks. If you need curated ground-truth, provide a JSON file in the same format (`question`, `ground_truth`, and optional metadata) and pass it to `agentic-eval evaluate`.
+
+RAGAS evaluation uses a **separate evaluator model** (`EVAL_MODEL`, default: `qwen3:4b`) to avoid self-evaluation bias — the chat model does not judge its own output. Pull it before running evaluation:
 
 ```bash
 # If using Docker:
-docker compose exec ollama ollama pull prometheus2:7b
+docker compose exec ollama ollama pull qwen3:4b
 
 # If running Ollama locally:
-ollama pull prometheus2:7b
+ollama pull qwen3:4b
 ```
 
 Override the evaluator model via `EVAL_MODEL` in `.env` if needed.
@@ -99,35 +165,42 @@ Override the evaluator model via `EVAL_MODEL` in `.env` if needed.
 
 Phoenix UI: `http://localhost:6006`
 
-What I usually look at:
-
-* which chunks were retrieved (and their scores)
-* tool call sequence (retriever → rerank → final response)
-* prompt inputs/outputs when the answer looks off
+What to check:
+* retrieved chunks and scores
+* tool call sequence (retriever → rerank → response)
 
 ### Prompt management (Phoenix)
 
-Prompts are stored as Jinja2 templates in `src/agentic_rag/prompts/`:
+Prompts are stored as Jinja2 templates in `src/agentic_rag/prompts/`. Some are only used in optional modes (agent mode, LLM chunking, or eval generation).
 
 | Template | Used by | Purpose |
 |----------|---------|---------|
+| `system_prompt.j2` | Chat endpoint | System instructions for the chat model |
 | `user_prompt.j2` | Chat endpoint, evaluator | Main RAG prompt: injects query + retrieved context |
 | `context_generation_template.j2` | Indexer (`--mode llm`) | Generates contextual summaries per chunk (Anthropic-style) |
 | `reranker_template.j2` | LLM reranker | Scores chunk relevance to a query |
 | `researcher_backstory.j2` | CrewAI researcher agent | Agent persona and instructions |
 | `writer_backstory.j2` | CrewAI writer agent | Agent persona and instructions |
+| `qa_generation_template.j2` | Evaluator (testset generation) | Generates synthetic Q/A pairs from chunks |
+| `scope_anchors.txt` | Scope gate | Anchor phrases used to classify in-scope queries |
 
-**Phoenix sync:** When `PHOENIX_PROMPT_SYNC=true` (default in `.env.example`), the backend pushes all templates to Phoenix on startup and tags them with `PHOENIX_PROMPT_TAG` (default: `development`). In production, set the tag to `production` so you can version and roll back prompts from the Phoenix UI without redeploying.
+**Phoenix sync:** When `PHOENIX_PROMPT_SYNC=true` (default in `.env.example`), the backend and CLI tools push all templates to Phoenix on startup and tag them with `PHOENIX_PROMPT_TAG` (default: `development`). In production, set the tag to `production` to version prompts in the Phoenix UI.
 
 When `PHOENIX_PROMPT_SYNC=false`, prompts are served from the local `.j2` files only. Disable sync during local development to avoid unnecessary Phoenix calls.
 
-In production (`ENVIRONMENT=prod`), `get_template()` fetches the tagged prompt from Phoenix first and falls back to local if Phoenix is unreachable.
+In production (`ENVIRONMENT=prod`), `PromptRegistry.render()` and `get_template()` fetch the tagged prompt from Phoenix first and fall back to local if Phoenix is unreachable.
+
+**Phoenix checklist:**
+1. Set `ENVIRONMENT=prod` and `PHOENIX_PROMPT_TAG=demo` (in `.env` or your shell)
+2. Start backend or CLI
+3. In Phoenix UI, confirm prompts exist under the tag
+4. Edit a prompt, re-run a query, and confirm the response changes
 
 ### Retrieval & reranker tuning
 
-**RRF weights:** The hybrid retriever fuses semantic (pgvector) and keyword (full-text) results using Reciprocal Rank Fusion. Weights are configurable via `RRF_WEIGHT_VECTOR` and `RRF_WEIGHT_KEYWORD` in `.env`. Equal weights (1.0/1.0) work well for most cases. Increase `RRF_WEIGHT_VECTOR` if your embedding model is strong; increase `RRF_WEIGHT_KEYWORD` for terminology-heavy domains.
+**RRF weights:** Configure in `.env` with `RRF_WEIGHT_VECTOR` and `RRF_WEIGHT_KEYWORD`.
 
-**Reranker:** The LLM reranker scores each candidate chunk via an Ollama LLM call. This improves precision but adds latency proportional to the number of candidates. Key settings:
+**Reranker settings:**
 
 | Setting | Default | Notes |
 |---------|---------|-------|
@@ -136,8 +209,6 @@ In production (`ENVIRONMENT=prod`), `get_template()` fetches the tagged prompt f
 | `TOP_K_RETRIEVAL` | 10 | Candidates from hybrid search before reranking |
 
 The reranker is only active in agent mode (CrewAI path). Fast RAG skips it entirely.
-
-For local GPU (e.g. Apple Silicon / 8GB VRAM), `qwen3:1.7b` with `TOP_K_RERANK=5` keeps reranking under 10 seconds. On CPU-only setups, consider setting `USE_CREWAI=false` to disable agent mode or reducing `TOP_K_RERANK` to 3.
 
 ## Citation format
 
@@ -165,31 +236,7 @@ Each response includes structured citations with complete source metadata. The b
 - `chunk_text`: Actual retrieved text
 - `score`: Relevance score (0.0-1.0)
 
-**Example Response:**
-```json
-{
-  "answer": "The company's revenue grew by 25% in Q4...",
-  "citations": [
-    {
-      "document_id": "a1b2c3d4-...",
-      "chunk_id": "e5f6g7h8-...",
-      "file_name": "Annual Report 2024.pdf",
-      "page_number": 12,
-      "section_path": "Financial Results > Revenue",
-      "chunk_text": "Q4 revenue increased 25% year-over-year...",
-      "score": 0.92
-    }
-  ],
-  "trace_id": "trace-xyz",
-  "usage": {
-    "prompt_tokens": 120,
-    "completion_tokens": 85,
-    "total_tokens": 205
-  }
-}
-```
-
-The agent's text response typically includes inline citations like: `"According to the Annual Report (p.12), revenue grew..."`
+The agent's text response typically includes inline citations.
 
 ## Services
 
@@ -205,21 +252,31 @@ The agent's text response typically includes inline citations like: `"According 
 - PostgreSQL is mapped to **host port 5433** (not 5432) to avoid conflicts with a local Postgres. When connecting from outside Docker, use `localhost:5433`. Inside Docker, services use `postgres:5432`.
 - OpenWebUI is mapped to **host port 3000** (container port 8080).
 
-**OpenWebUI integration:** OpenWebUI is configured to use this backend as an OpenAI-compatible provider via `OPENAI_API_BASE_URL=http://backend:8000/v1`. The backend implements `/v1/chat/completions` and `/v1/models`, which is the minimum OpenWebUI needs. The API key is set to `dummy` since the backend doesn't require authentication. No additional OpenWebUI configuration is needed — it auto-discovers models and routes chat through the backend.
+**OpenWebUI integration:** Configure `OPENAI_API_BASE_URL=http://backend:8000/v1` and `OPENAI_API_KEY=dummy`. OpenWebUI will discover models via `/v1/models`.
 
-**Health & service status:** The `GET /health` endpoint checks database, Ollama, and Phoenix. Database and Ollama are critical — if either is down, overall status is `unhealthy`. Phoenix is non-critical — if unreachable, status reports `degraded` (not `unhealthy`). The system continues to function without Phoenix, but traces and prompt sync are unavailable. For assessment purposes, keep Phoenix running to demonstrate full observability.
+**Session persistence:** The API returns an `X-Session-Id` header. Reuse it on subsequent requests to keep conversation memory.
+
+**Health & service status:** `GET /health` checks database, Ollama, and Phoenix. If DB or Ollama are down, status is `unhealthy`. If Phoenix is down, status is `degraded`.
 
 ## Known limitations (current)
 
+* **No API authentication** — the backend API (port 8000) has no auth layer. OpenWebUI (port 3000) is the intended user-facing entry point and provides its own authentication. In production, remove the backend port mapping and place it behind a reverse proxy or API gateway.
 * PDFs with complex tables/scans depend heavily on Docling parsing quality.
 * Retrieval quality depends on chunking + embedding model choice.
-* If Ollama doesn’t have the models pulled yet, first run will be slow.
+* First launch may take several minutes while Ollama models are downloaded.
 
 ## Troubleshooting
 
 **Backend can’t reach Ollama**
 
-* Check `OLLAMA_HOST` and that the `ollama` service is up.
+* Check `OLLAMA_BASE_URL` and that the `ollama` service is up.
+
+**Mac GPU Ollama (optional override)**
+
+Use the compose override:
+```bash
+docker compose -f docker-compose.yml -f docker-compose.mac.yml up -d
+```
 
 **No results retrieved**
 
@@ -257,6 +314,13 @@ pip install -e ".[dev,eval]"
 ruff check src/ tests/
 pytest -v
 mypy src/agentic_rag
+```
+
+## Testing prerequisites
+
+Install test dependencies before running `pytest`:
+```bash
+pip install -e ".[dev,eval]"
 ```
 
 ## License

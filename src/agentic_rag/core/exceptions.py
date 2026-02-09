@@ -56,6 +56,12 @@ class RetrievalError(AgenticRAGError):
     pass
 
 
+class IndexMismatchError(AgenticRAGError):
+    """Raised when the configured embedding/index does not match stored data."""
+
+    pass
+
+
 class AgentError(AgenticRAGError):
     """Raised when CrewAI agent execution fails."""
 

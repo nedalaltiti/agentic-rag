@@ -8,7 +8,7 @@ from agentic_rag.backend.crew.tools import (
     MemoryLookupTool,
     run_async_safely,
 )
-from agentic_rag.shared.schemas import Citation
+from agentic_rag.core.schemas import Citation
 
 
 class TestRunAsyncSafely:
@@ -30,7 +30,7 @@ class TestDatabaseSearchTool:
         tool = DatabaseSearchTool()
         tool._retriever = mock_instance
         result = tool._run("some query")
-        assert result == "No relevant documents found."
+        assert result == "No relevant information found in the knowledge base."
 
     @patch("agentic_rag.backend.crew.tools.format_citations")
     @patch("agentic_rag.backend.crew.tools.HybridRetriever")

@@ -1,15 +1,18 @@
 """Heading-first contextual chunking with section metadata and TOC detection."""
 
 import asyncio
+import hashlib
 import re
 from typing import Any, Literal
 
 import structlog
 from llama_index.core.node_parser import SentenceSplitter
+from sqlalchemy import text
 
-from agentic_rag.shared.config import settings
-from agentic_rag.shared.llm_factory import get_embedding_model, get_llm
-from agentic_rag.shared.prompts import PromptRegistry
+from agentic_rag.core.config import settings
+from agentic_rag.core.database import AsyncSessionLocal
+from agentic_rag.core.llm_factory import get_embedding_model, get_llm, get_tokenizer
+from agentic_rag.core.prompts import PromptRegistry
 
 logger = structlog.get_logger()
 
@@ -25,7 +28,9 @@ class ContextualChunker:
 
     def __init__(self):
         self.splitter = SentenceSplitter(
-            chunk_size=settings.CHUNK_SIZE, chunk_overlap=settings.CHUNK_OVERLAP
+            chunk_size=settings.CHUNK_SIZE,
+            chunk_overlap=settings.CHUNK_OVERLAP,
+            tokenizer=get_tokenizer(),
         )
         self.llm = get_llm()
         self.embed_model = get_embedding_model()
@@ -153,6 +158,12 @@ class ContextualChunker:
         sections = self._detect_toc_or_frontmatter(sections)
         total_chars = len(text)
         page_count = metadata.get("page_count")
+        if page_count:
+            logger.info(
+                "Estimating page numbers from character offsets (approximate)",
+                file=metadata.get("file_name"),
+                pages=page_count,
+            )
 
         raw_chunks: list[dict[str, Any]] = []
         global_index = 0
@@ -202,25 +213,55 @@ class ContextualChunker:
 
         for i in range(0, len(raw_chunks), batch_size):
             batch = raw_chunks[i : i + batch_size]
-            tasks = [self._process_single_chunk(rc, text, metadata, mode) for rc in batch]
-            results = await asyncio.gather(*tasks)
-            all_processed.extend(results)
+            tasks = [self._prepare_chunk(rc, text, metadata, mode) for rc in batch]
+            prepared = await asyncio.gather(*tasks)
+
+            chunk_hashes = [p["chunk_hash"] for p in prepared]
+            cached_embeddings = await self._load_cached_embeddings(chunk_hashes)
+            if cached_embeddings:
+                logger.info(
+                    "Embedding cache hits",
+                    hits=len(cached_embeddings),
+                    total=len(prepared),
+                    file=metadata.get("file_name"),
+                )
+
+            # Embed only cache misses
+            misses = [p for p in prepared if p["chunk_hash"] not in cached_embeddings]
+            if misses:
+                embed_tasks = [
+                    self.embed_model.aget_text_embedding(p["contextual_content"]) for p in misses
+                ]
+                miss_embeddings = await asyncio.gather(*embed_tasks)
+                for p, emb in zip(misses, miss_embeddings, strict=False):
+                    p["embedding"] = emb
+
+            # Attach cached embeddings
+            for p in prepared:
+                if "embedding" not in p:
+                    p["embedding"] = cached_embeddings.get(p["chunk_hash"])
+
+            all_processed.extend(prepared)
 
         return all_processed
 
-    async def _process_single_chunk(
+    @staticmethod
+    def _hash_text(text: str) -> str:
+        return hashlib.sha256(text.encode("utf-8")).hexdigest()
+
+    async def _prepare_chunk(
         self,
         section_info: dict[str, Any],
         full_text: str,
         metadata: dict[str, Any],
         mode: str,
     ) -> dict[str, Any]:
-        """Process a single chunk with structured prefix and embedding."""
+        """Prepare a single chunk with structured prefix (no embedding yet)."""
         chunk_text = section_info["text"]
         file_name = metadata.get("file_name", "Unknown")
         section_path = section_info["section_path"]
 
-        # Structured embed prefix
+        # Document embeddings are plain text; query prefixing happens in retriever.py.
         prefix = f"[Doc: {file_name}]\n"
         if section_path:
             prefix += f"[Section: {section_path}]\n"
@@ -230,8 +271,7 @@ class ContextualChunker:
             to_embed = f"{prefix}{context}\n\n{chunk_text}"
         else:
             to_embed = f"{prefix}{chunk_text}"
-
-        embedding = await self.embed_model.aget_text_embedding(to_embed)
+        chunk_hash = self._hash_text(to_embed)
 
         rich_metadata = {
             **metadata,
@@ -247,10 +287,38 @@ class ContextualChunker:
         return {
             "content": chunk_text,
             "contextual_content": to_embed,
-            "embedding": embedding,
+            "chunk_hash": chunk_hash,
             "chunk_index": section_info["chunk_index_global"],
             "metadata": rich_metadata,
         }
+
+    async def _load_cached_embeddings(self, chunk_hashes: list[str]) -> dict[str, list[float]]:
+        """Fetch cached embeddings for matching chunk hashes."""
+        if not chunk_hashes:
+            return {}
+
+        stmt = text(
+            """
+            SELECT chunk_hash, embedding
+            FROM chunks
+            WHERE chunk_hash = ANY(:hashes)
+              AND index_version = :index_version
+              AND embedding_model = :embedding_model
+              AND embedding_dimension = :embedding_dimension
+            """
+        )
+        params = {
+            "hashes": chunk_hashes,
+            "index_version": settings.INDEX_VERSION,
+            "embedding_model": settings.EMBEDDING_MODEL,
+            "embedding_dimension": settings.EMBEDDING_DIMENSION,
+        }
+
+        async with AsyncSessionLocal() as session:
+            result = await session.execute(stmt, params)
+            rows = result.mappings().all()
+
+        return {row["chunk_hash"]: row["embedding"] for row in rows}
 
     async def _generate_context(self, chunk: str, full_doc_text: str) -> str:
         """LLM-based context generation using PromptRegistry (used in 'llm' mode only)."""

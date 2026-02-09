@@ -1,6 +1,6 @@
 -- 1. Vector Index (HNSW)
 -- Tuned for Recall vs Speed balance (m=16 is standard)
--- Note: Creation might be slow on massive datasets, but fine for this assessment.
+-- Note: Creation might be slow on massive datasets
 CREATE INDEX IF NOT EXISTS idx_chunks_embedding_hnsw
 ON chunks 
 USING hnsw (embedding vector_cosine_ops) 

@@ -25,6 +25,9 @@ CREATE TABLE IF NOT EXISTS chunks (
     
     -- The "Contextual" text (chunk + document context prepended)
     contextual_content TEXT,
+
+    -- Hash of contextual content for embedding reuse
+    chunk_hash VARCHAR(64),
     
     -- Citation/Filter metadata (page_number, section_title)
     metadata JSONB NOT NULL DEFAULT '{}'::jsonb,
@@ -35,7 +38,7 @@ CREATE TABLE IF NOT EXISTS chunks (
       to_tsvector('simple', coalesce(content, ''))
     ) STORED,
     
-    -- Vector Embedding (1024 dimensions for qwen3-embedding)
+    -- Vector Embedding (must match EMBEDDING_DIMENSION in config/.env)
     embedding vector(1024) NOT NULL,
     
     chunk_index INT NOT NULL,

@@ -7,8 +7,8 @@ from llama_index.core.llms import ChatMessage, MessageRole
 from sqlalchemy import delete, desc, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from agentic_rag.shared.database import AsyncSessionLocal
-from agentic_rag.shared.models import Conversation
+from agentic_rag.core.database import AsyncSessionLocal
+from agentic_rag.core.models import Conversation
 
 logger = structlog.get_logger()
 

@@ -8,7 +8,7 @@ from typing import Any
 import structlog
 from jinja2 import Environment, FileSystemLoader
 
-from agentic_rag.shared.config import settings
+from agentic_rag.core.config import settings
 
 logger = structlog.get_logger()
 
@@ -21,6 +21,7 @@ class PromptRegistry:
     _env = Environment(loader=FileSystemLoader(PROMPTS_DIR), autoescape=False)
     _client = None
     _synced = False
+    sync_failures: list[str] = []
 
     @classmethod
     def _ensure_client(cls):
@@ -44,10 +45,22 @@ class PromptRegistry:
         return [p.stem for p in PROMPTS_DIR.glob("*.j2")]
 
     @classmethod
+    def _domain_vars(cls) -> dict[str, str]:
+        """Return domain config variables injected into every template."""
+        return {
+            "domain_name": settings.DOMAIN_NAME,
+            "domain_full_name": settings.DOMAIN_FULL_NAME,
+            "domain_region": settings.DOMAIN_REGION,
+            "domain_topics": settings.DOMAIN_TOPICS,
+            "domain_closing": settings.DOMAIN_CLOSING,
+        }
+
+    @classmethod
     def render(cls, name: str, **kwargs: Any) -> str:
-        """Render a local Jinja2 template by name."""
-        template = cls._env.get_template(f"{name}.j2")
-        return template.render(**kwargs)
+        """Render a prompt template. In prod, fetches from Phoenix first."""
+        template_str = cls.get_template(name)
+        template = cls._env.from_string(template_str)
+        return template.render(**{**cls._domain_vars(), **kwargs})
 
     @classmethod
     def get_raw_local(cls, name: str) -> str:
@@ -69,8 +82,9 @@ class PromptRegistry:
             pv = client.prompts.get(prompt_identifier=name, tag=settings.PHOENIX_PROMPT_TAG)
             return str(pv.template)
         except Exception as e:
-            logger.warning(
-                "Failed to fetch prompt from Phoenix; using local fallback",
+            logger.error(
+                "Failed to fetch prompt from Phoenix; using local fallback — "
+                "production may be serving stale prompts",
                 prompt=name,
                 tag=settings.PHOENIX_PROMPT_TAG,
                 error=str(e),
@@ -100,6 +114,7 @@ class PromptRegistry:
             logger.warning("Phoenix PromptVersion type not available", error=str(e))
             return
 
+        cls.sync_failures = []
         for name in cls.list_local_prompts():
             try:
                 template_src = cls.get_raw_local(name)
@@ -139,4 +154,13 @@ class PromptRegistry:
                 logger.info("Prompt synced", prompt=name, version_id=getattr(created, "id", None))
 
             except Exception as e:
-                logger.warning("Prompt sync failed (non-blocking)", prompt=name, error=str(e))
+                cls.sync_failures.append(name)
+                log = logger.error if settings.ENVIRONMENT == "prod" else logger.warning
+                log("Prompt sync failed", prompt=name, error=str(e))
+
+        if cls.sync_failures:
+            log = logger.error if settings.ENVIRONMENT == "prod" else logger.warning
+            log(
+                "Some prompts failed to sync — production may serve stale versions",
+                failed=cls.sync_failures,
+            )

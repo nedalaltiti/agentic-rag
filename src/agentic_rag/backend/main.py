@@ -1,16 +1,20 @@
 """FastAPI application entrypoint."""
 
-from collections.abc import AsyncGenerator
+import uuid
+from collections.abc import AsyncGenerator, Callable
 from contextlib import asynccontextmanager
+from typing import Any
 
-from fastapi import FastAPI
+import structlog
+from fastapi import FastAPI, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 
 from agentic_rag.backend.api.v1 import chat, health
-from agentic_rag.shared.config import settings
-from agentic_rag.shared.logging import setup_logging
-from agentic_rag.shared.observability import setup_observability
-from agentic_rag.shared.prompts import PromptRegistry
+from agentic_rag.core.config import settings
+from agentic_rag.core.logging import setup_logging
+from agentic_rag.core.migrator import run_migrations
+from agentic_rag.core.observability import setup_observability
+from agentic_rag.core.prompts import PromptRegistry
 
 
 @asynccontextmanager
@@ -19,7 +23,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging()
     setup_observability(app)
 
+    await run_migrations()
+
     PromptRegistry.sync_to_phoenix(version_tag=settings.APP_VERSION)
+
+    app.state.ready = True
 
     yield
 
@@ -41,6 +49,18 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next: Callable[[Request], Any]) -> Response:
+    """Bind a unique request_id to structlog context for every request."""
+    request_id = request.headers.get("X-Request-Id") or uuid.uuid4().hex[:12]
+    structlog.contextvars.clear_contextvars()
+    structlog.contextvars.bind_contextvars(request_id=request_id)
+    response: Response = await call_next(request)
+    response.headers["X-Request-Id"] = request_id
+    return response
+
 
 app.include_router(health.router)
 app.include_router(chat.router)

@@ -11,7 +11,6 @@ CREATED_AT = "created_at"
 CONTEXT_PREFIX = "context_prefix"
 
 # Vector store
-EMBEDDING_DIMENSION = 1024  # qwen3-embedding
 COLLECTION_NAME = "documents"
 
 # Agent names

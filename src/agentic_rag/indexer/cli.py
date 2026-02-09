@@ -9,8 +9,10 @@ from pathlib import Path
 import typer
 from rich.console import Console
 
+from agentic_rag.core.config import settings
+from agentic_rag.core.llm_factory import configure_global_settings, validate_embedding_dimension
+from agentic_rag.core.prompts import PromptRegistry
 from agentic_rag.indexer.pipeline import IngestionPipeline
-from agentic_rag.shared.llm_factory import configure_global_settings
 
 app = typer.Typer()
 console = Console()
@@ -43,6 +45,8 @@ def ingest(
     console.print(f"[bold blue]Starting Indexer on: {source} [Mode: {mode}][/bold blue]")
 
     configure_global_settings()
+    validate_embedding_dimension()
+    PromptRegistry.sync_to_phoenix(version_tag=settings.APP_VERSION)
     pipeline = IngestionPipeline()
 
     try:

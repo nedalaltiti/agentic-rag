@@ -8,8 +8,10 @@ from pydantic import Field, PrivateAttr
 
 from agentic_rag.backend.rag.reranker import LLMReranker
 from agentic_rag.backend.rag.retriever import HybridRetriever
-from agentic_rag.shared.citations import format_citations
-from agentic_rag.shared.memory import ConversationMemory
+from agentic_rag.core.citations import format_citations
+from agentic_rag.core.config import settings
+from agentic_rag.core.memory import ConversationMemory
+from agentic_rag.core.schemas import Citation
 
 logger = structlog.get_logger()
 
@@ -38,10 +40,19 @@ class DatabaseSearchTool(BaseTool):
 
     _retriever: HybridRetriever = PrivateAttr(default_factory=HybridRetriever)
     _reranker: LLMReranker = PrivateAttr(default_factory=LLMReranker)
+    _last_citations: list[Citation] = PrivateAttr(default_factory=list)
+
+    def __init__(self, **kwargs):
+        super().__init__(**kwargs)
+        self._reranker._semaphore = asyncio.Semaphore(1)
+
+    def get_last_citations(self) -> list[Citation]:
+        """Return the most recent citations produced by this tool."""
+        return list(self._last_citations)
 
     def _run(self, query: str) -> str:
         try:
-            logger.info("Agent executing search", query=query)
+            logger.info("DatabaseSearchTool invoked", query=query)
 
             async def _execute():
                 nodes = await self._retriever.aretrieve(query)
@@ -49,10 +60,13 @@ class DatabaseSearchTool(BaseTool):
                 return format_citations(reranked)
 
             citations = run_async_safely(_execute)
+            self._last_citations = citations
 
             if not citations:
-                return "No relevant documents found."
+                logger.info("DatabaseSearchTool found no citations")
+                return "No relevant information found in the knowledge base."
 
+            logger.info("DatabaseSearchTool citations", count=len(citations))
             result_text = ""
             for i, cit in enumerate(citations[:8]):
                 snippet = cit.chunk_text[:1000] + ("..." if len(cit.chunk_text) > 1000 else "")
@@ -90,7 +104,7 @@ class MemoryLookupTool(BaseTool):
 
             async def _execute():
                 memory = ConversationMemory(self.session_id)
-                return await memory.get_history(limit=5)
+                return await memory.get_history(limit=settings.CONVERSATION_HISTORY_LIMIT)
 
             history = run_async_safely(_execute)
 

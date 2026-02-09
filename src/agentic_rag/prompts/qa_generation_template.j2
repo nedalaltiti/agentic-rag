@@ -1,0 +1,14 @@
+You are generating evaluation data for a RAG system.
+
+Given this context snippet from a document, write:
+1) A specific question that can be answered ONLY from this snippet.
+2) A short ground-truth answer (1-3 sentences) strictly grounded in the snippet.
+
+Return ONLY valid JSON with keys:
+- question
+- ground_truth
+
+Context snippet:
+---
+{{ context }}
+---

@@ -11,11 +11,12 @@ import structlog
 from rich.progress import Progress, SpinnerColumn, TextColumn
 from sqlalchemy import select
 
+from agentic_rag.core.config import settings
+from agentic_rag.core.database import AsyncSessionLocal
+from agentic_rag.core.models import Chunk, Document
+from agentic_rag.core.observability import setup_observability
 from agentic_rag.indexer.chunking import ContextualChunker
 from agentic_rag.indexer.parser import SUPPORTED_EXTENSIONS, DocumentParser
-from agentic_rag.shared.database import AsyncSessionLocal
-from agentic_rag.shared.models import Chunk, Document
-from agentic_rag.shared.observability import setup_observability
 
 logger = structlog.get_logger()
 
@@ -88,6 +89,9 @@ class IngestionPipeline:
                             file_path=str(file_path),
                             file_hash=file_hash,
                             page_count=parse_result.page_count,
+                            index_version=settings.INDEX_VERSION,
+                            embedding_model=settings.EMBEDDING_MODEL,
+                            embedding_dimension=settings.EMBEDDING_DIMENSION,
                         )
                         session.add(new_doc)
                         await session.flush()
@@ -109,7 +113,11 @@ class IngestionPipeline:
                                 contextual_content=c["contextual_content"],
                                 metadata_=c["metadata"],
                                 embedding=c["embedding"],
+                                chunk_hash=c.get("chunk_hash"),
                                 chunk_index=c["chunk_index"],
+                                index_version=settings.INDEX_VERSION,
+                                embedding_model=settings.EMBEDDING_MODEL,
+                                embedding_dimension=settings.EMBEDDING_DIMENSION,
                             )
                             for c in chunks_data
                         ]

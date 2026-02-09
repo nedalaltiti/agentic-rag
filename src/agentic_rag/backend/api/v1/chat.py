@@ -1,33 +1,35 @@
 """OpenAI-compatible chat completions endpoint."""
 
-import asyncio
-import hashlib
 import json
+import re
 import time
 import uuid
 from collections.abc import AsyncGenerator
-from typing import Literal
 
 import structlog
-from fastapi import APIRouter, Header, HTTPException
+from fastapi import APIRouter, Header, HTTPException, Response
 from fastapi.responses import StreamingResponse
 
-from agentic_rag.backend.rag.reranker import LLMReranker
-from agentic_rag.backend.rag.retriever import HybridRetriever
-from agentic_rag.shared.citations import format_citations
-from agentic_rag.shared.config import settings
-from agentic_rag.shared.llm_factory import get_llm
-from agentic_rag.shared.memory import ConversationMemory
-from agentic_rag.shared.prompts import PromptRegistry
-from agentic_rag.shared.schemas import (
+from agentic_rag.backend.api.v1.chat_service import (
+    SCOPE_REFUSAL,
+    RouteDecision,
+    _agent_mode_response,
+    _conversational_response,
+    _fallback_rag_answer,
+    _fast_rag_response,
+    _prepare_rag,
+    _route_decision,
+)
+from agentic_rag.backend.rag.semantic_cache import lookup_cache, store_cache
+from agentic_rag.core.config import settings
+from agentic_rag.core.exceptions import DependencyUnavailable, IndexMismatchError
+from agentic_rag.core.llm_factory import ollama_chat_with_thinking
+from agentic_rag.core.schemas import (
     Citation,
     OpenAIChatChoice,
     OpenAIChatMessage,
     OpenAIChatRequest,
     OpenAIChatResponse,
-    OpenAIChatStreamChoice,
-    OpenAIChatStreamChunk,
-    OpenAIChatStreamDelta,
     TokenUsage,
 )
 
@@ -35,31 +37,30 @@ logger = structlog.get_logger()
 
 router = APIRouter(tags=["chat"])
 
-AGENT_MODE_KEYWORDS = {
-    "compare",
-    "plan",
-    "steps",
-    "analyze in detail",
-    "based on our previous",
-    "use agent",
-    "multi-step",
-    "research and",
-    "investigate",
-}
+# Patterns that trigger agent (multi-step) mode.  Each is compiled as a
+# word-boundary regex so "compare" won't match inside "incomparable".
+_AGENT_MODE_PATTERNS = [
+    re.compile(r"\b" + p + r"\b", re.IGNORECASE)
+    for p in [
+        r"compare",
+        r"analyze in detail",
+        r"based on our previous",
+        r"use agent",
+        r"multi-step",
+        r"research and",
+        r"investigate",
+        r"step[- ]by[- ]step",
+    ]
+]
 
 
 def _get_session_id(
     messages: list,
     session_header: str | None = None,
 ) -> str:
-    """Get session ID from header, or derive deterministically from the first user message."""
+    """Get session ID from header, or generate a new one."""
     if session_header:
         return session_header
-
-    if messages:
-        first_user = next((m for m in messages if m.role == "user"), None)
-        if first_user:
-            return hashlib.sha256(first_user.content.encode()).hexdigest()[:16]
 
     return str(uuid.uuid4())[:16]
 
@@ -69,277 +70,141 @@ def _should_use_agent_mode(query: str, agent_header: str | None) -> bool:
     if not settings.USE_CREWAI:
         return False
 
-    if query.strip().startswith("### Task:") or query.strip().startswith("###"):
+    stripped = query.strip()
+    if stripped.startswith("### Task:") or stripped.startswith("###Task:"):
         return False
 
     if agent_header and agent_header.lower() == "true":
         return True
 
-    query_lower = query.lower()
-    return any(kw in query_lower for kw in AGENT_MODE_KEYWORDS)
+    return any(p.search(query) for p in _AGENT_MODE_PATTERNS)
 
 
-def _is_conversational(query: str) -> bool:
-    """Check if query is conversational (greeting, thanks, farewell) - no RAG needed."""
-    conversational = {
-        "hello",
-        "hi",
-        "hey",
-        "hii",
-        "helloo",
-        "hiii",
-        "heyyy",
-        "yo",
-        "thanks",
-        "thank you",
-        "thx",
-        "ty",
-        "appreciated",
-        "great",
-        "awesome",
-        "ok",
-        "okay",
-        "sure",
-        "yes",
-        "no",
-        "no thanks",
-        "nothing",
-        "got it",
-        "bye",
-        "goodbye",
-        "see you",
-        "later",
-        "take care",
-    }
-    cleaned = query.strip().lower().rstrip("!.,?")
-    return cleaned in conversational or len(cleaned) <= 3
+async def _generate_followup_questions(
+    messages: list[OpenAIChatMessage],
+) -> str:
+    """Generate contextual follow-up questions based on conversation history."""
+    # Extract last assistant message for context
+    last_assistant = ""
+    for msg in reversed(messages):
+        if msg.role == "assistant" and msg.content:
+            last_assistant = msg.content[:1000]
+            break
 
+    domain = settings.DOMAIN_NAME
+    default_questions = [
+        f"What are the key obligations under {domain}?",
+        f"How does {domain} handle cross-border data transfers?",
+        f"What are the penalties for non-compliance with {domain}?",
+    ]
 
-async def _conversational_response(query: str) -> str:
-    """Quick LLM response for greetings/thanks."""
-    app_name = settings.APP_NAME
-    system_prompt = (
-        f"You are a friendly {app_name} assistant. "
-        "Respond naturally and briefly to the user's message. "
-        f"Always end by offering help with {app_name} topics. "
-        "Keep responses to 1-2 sentences max. Be warm but professional. No emojis."
+    if not last_assistant:
+        return json.dumps({"questions": default_questions})
+
+    prompt = (
+        "Based on this assistant response, generate exactly 3 short follow-up "
+        f"questions the user might ask next about {domain}. Return ONLY a JSON object "
+        'in this format: {"questions": ["q1", "q2", "q3"]}\n\n'
+        f"Assistant response:\n{last_assistant}"
     )
 
-    llm = get_llm()
-    prompt = f"/no_think\n{system_prompt}\n\nUser: {query}\nAssistant:"
-
     try:
-        response = await llm.acomplete(prompt)
-        return str(response.text).strip()
-    except Exception:
-        return f"I'm here to help with {app_name} matters. What would you like to know?"
-
-
-def _is_openwebui_internal_request(query: str) -> tuple[bool, str]:
-    """Detect and short-circuit OpenWebUI internal requests (title gen, follow-ups, tags)."""
-    query_lower = query.strip().lower()
-    app_name = settings.APP_NAME
-
-    if "### task:" in query_lower and "title" in query_lower and "emoji" in query_lower:
-        return True, f'{{"title": "{app_name} Chat"}}'
-
-    if "### task:" in query_lower and "follow-up questions" in query_lower:
-        return True, (
-            '{"questions": ["What topics can you help me with?", '
-            '"How does the knowledge base work?", '
-            '"What documents are available?"]}'
+        _, content, _ = await ollama_chat_with_thinking(
+            system_prompt="You generate follow-up questions. Reply with JSON only.",
+            user_message=prompt,
+            think=False,
         )
-
-    if "### task:" in query_lower and ("tags" in query_lower or "classify" in query_lower):
-        return True, '{"tags": ["rag", "knowledge-base", "assistant"]}'
-
-    if query.strip().startswith("### Task:") or query.strip().startswith("###Task:"):
-        return True, "OK"
-
-    return False, ""
-
-
-def _format_context_for_llm(citations: list[Citation]) -> str:
-    """Format citations as context for the LLM prompt."""
-    if not citations:
-        return "No relevant documents found in the knowledge base."
-
-    context_parts = []
-    for i, cit in enumerate(citations, 1):
-        doc_name = cit.file_name.replace("+", " ").replace(".md", "").replace("_", " ")
-
-        header_parts = [f"Source [{i}]: {doc_name}"]
-        if cit.section_path and cit.section_path != "N/A":
-            header_parts.append(f"Section: {cit.section_path}")
-        if cit.page_number:
-            header_parts.append(f"Page: {cit.page_number}")
-
-        header = " | ".join(header_parts)
-
-        content = cit.chunk_text[:1500].strip()
-
-        context_parts.append(f"{header}\n{content}")
-
-    return "\n\n---\n\n".join(context_parts)
-
-
-async def _retrieve_and_rerank(
-    query: str,
-    use_reranker: bool = False,
-) -> list[Citation]:
-    """Retrieve documents and optionally rerank them."""
-    retriever = HybridRetriever(include_toc=False)
-
-    try:
-        nodes = await retriever.aretrieve(query)
-
-        if use_reranker and nodes:
-            reranker = LLMReranker()
-            reranker._semaphore = asyncio.Semaphore(1)
-            nodes = await reranker.rerank(query, nodes[:5])
-        else:
-            nodes = nodes[:5]
-
-        citations = format_citations(nodes)
-
-        logger.info(
-            "Retrieval completed",
-            query=query[:50],
-            documents_found=len(citations),
-            reranked=use_reranker,
-        )
-
-        return citations
+        # Validate it's parseable JSON
+        parsed = json.loads(content.strip())
+        if "questions" in parsed and isinstance(parsed["questions"], list):
+            return json.dumps(parsed)
     except Exception:
-        logger.exception("Retrieval failed")
-        return []
+        logger.debug("Follow-up generation failed, using defaults")
+
+    return json.dumps({"questions": default_questions})
 
 
-def _format_sources_section(citations: list[Citation]) -> str:
-    """Format citations as a visible Sources section for the answer."""
-    if not citations:
-        return ""
-
-    sources = []
-    seen = set()  # Deduplicate sources
-
-    for i, c in enumerate(citations[:5], 1):
-        doc_name = c.file_name.replace("+", " ").replace(".md", "").replace("_", " ")
-
-        section = c.section_path if c.section_path and c.section_path != "N/A" else ""
-        source_key = f"{doc_name}|{section}"
-
-        if source_key not in seen:
-            seen.add(source_key)
-            if section:
-                sources.append(f"- [{i}] {doc_name} — {section}")
-            else:
-                sources.append(f"- [{i}] {doc_name}")
-
-    if not sources:
-        return ""
-
-    return "\n\n---\n\n**Sources:**\n\n" + "\n".join(sources)
-
-
-def _format_history(messages: list) -> str:
-    """Format conversation history for prompt injection."""
-    if not messages:
-        return ""
-    lines = []
-    for msg in messages:
-        role = msg.role.value.capitalize() if hasattr(msg.role, "value") else str(msg.role)
-        content = msg.content[:500] if msg.content else ""
-        lines.append(f"{role}: {content}")
-    return "\n".join(lines)
-
-
-async def _fast_rag_response(
-    query: str,
-    citations: list[Citation],
-    history: list | None = None,
-    think: bool = True,
-) -> str:
-    """Single LLM call with retrieved context (default path)."""
-    context = _format_context_for_llm(citations)
-    history_text = _format_history(history or [])
-
-    prompt = PromptRegistry.render(
-        "user_prompt",
-        query=query,
-        context=context,
-        history=history_text,
-    )
-
-    if not think:
-        prompt = "/no_think\n" + prompt
-
-    llm = get_llm()
-    response = await llm.acomplete(prompt)
-    answer = str(response.text).strip()
-    answer += _format_sources_section(citations)
-
-    return answer
-
-
-async def _agent_mode_response(
-    query: str,
-    session_id: str,
-    citations: list[Citation],
-) -> str:
-    """Multi-step response via CrewAI agent pipeline."""
-    from agentic_rag.backend.crew.runner import CrewRunner
-
-    context = _format_context_for_llm(citations)
-
-    runner = CrewRunner(session_id)
-    answer = await asyncio.to_thread(runner.kickoff_with_context, query, context)
-
-    if citations and "Sources:" not in answer and "References" not in answer:
-        answer += _format_sources_section(citations)
-
-    return answer
+_ZERO_USAGE: dict[str, int] = {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0}
 
 
 async def _process_query(
     query: str,
     session_id: str,
     use_agent_mode: bool = False,
-    think: bool = True,
-) -> tuple[str, list[Citation]]:
-    """Route query through internal-request check, conversational check, or RAG pipeline."""
-    is_internal, internal_response = _is_openwebui_internal_request(query)
-    if is_internal:
-        logger.info("Bypassing RAG for OpenWebUI internal request", session_id=session_id)
-        return internal_response, []
+    model: str | None = None,
+) -> tuple[str, list[Citation], dict[str, int]]:
+    """Route query once, then render response for non-streaming clients."""
+    route = await _route_decision(query, session_id, use_agent_mode)
 
-    memory = ConversationMemory(session_id)
+    if route.kind == "internal":
+        return route.internal_response, [], _ZERO_USAGE
 
-    await memory.add_message("user", query)
+    memory = route.memory
+    if memory is None:
+        raise HTTPException(status_code=500, detail="Failed to initialize memory")
 
-    if _is_conversational(query):
-        logger.info("Handling conversational message", session_id=session_id)
-        answer = await _conversational_response(query)
+    if route.kind == "conversational":
+        answer = await _conversational_response(query, model=model)
         await memory.add_message("assistant", answer)
-        return answer, []
+        return answer, [], _ZERO_USAGE
 
-    citations = await _retrieve_and_rerank(query, use_reranker=use_agent_mode)
+    if route.kind == "scope_refusal":
+        await memory.add_message("assistant", SCOPE_REFUSAL)
+        return SCOPE_REFUSAL, [], _ZERO_USAGE
 
+    usage = _ZERO_USAGE
     try:
-        if use_agent_mode:
-            logger.info("Using Agent Mode (CrewAI)", session_id=session_id)
-            answer = await _agent_mode_response(query, session_id, citations)
+        if route.kind == "agent":
+            answer, citations = await _agent_mode_response(
+                query,
+                session_id,
+                model=model,
+            )
         else:
-            logger.info("Using Fast RAG Mode", session_id=session_id, think=think)
-            history = await memory.get_history(limit=5)
-            answer = await _fast_rag_response(query, citations, history=history, think=think)
+            used_fallback = False
+            cached = await lookup_cache(query)
+            if cached is not None:
+                await memory.add_message("assistant", cached.answer)
+                return cached.answer, cached.citations, _ZERO_USAGE
+
+            rag_payload = await _prepare_rag(memory, query)
+            citations = rag_payload.citations
+            try:
+                answer, usage = await _fast_rag_response(
+                    query,
+                    citations,
+                    history=rag_payload.history,
+                    model=model,
+                    system_prompt=rag_payload.system_prompt,
+                    user_prompt=rag_payload.user_prompt,
+                )
+            except Exception:
+                logger.exception("LLM generation failed; using fallback response")
+                answer = _fallback_rag_answer(citations)
+                used_fallback = True
+    except IndexMismatchError as exc:
+        logger.exception("Index mismatch during retrieval", details=exc.details)
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                "Index embedding mismatch. Reindex documents or update INDEX_VERSION/"
+                "EMBEDDING_MODEL to match the existing index."
+            ),
+        ) from None
+    except DependencyUnavailable as exc:
+        logger.exception("Dependency unavailable", service=getattr(exc, "service", None))
+        answer = "Search service is temporarily unavailable. Please try again in a moment."
+        await memory.add_message("assistant", answer)
+        return answer, [], _ZERO_USAGE
     except Exception:
         logger.exception("Response generation failed", session_id=session_id)
         raise HTTPException(status_code=500, detail="Failed to generate response") from None
 
     await memory.add_message("assistant", answer)
+    if route.kind == "rag" and not used_fallback and citations:
+        await store_cache(query, answer, citations)
 
-    return answer, citations
+    return answer, citations, usage
 
 
 async def _stream_with_thinking(
@@ -349,63 +214,21 @@ async def _stream_with_thinking(
     session_id: str,
     use_agent_mode: bool,
     created_at: int,
-    think: bool = True,
 ) -> AsyncGenerator[str, None]:
-    """Stream the response as SSE chunks."""
+    """Stream the response as SSE chunks with real-time thinking."""
+    from agentic_rag.backend.api.v1.streaming import StreamingRenderer
 
-    def make_chunk(
-        content: str,
-        role: Literal["assistant"] | None = None,
-        finish: str | None = None,
-    ):
-        return OpenAIChatStreamChunk(
-            id=request_id,
-            created=created_at,
-            model=model,
-            choices=[
-                OpenAIChatStreamChoice(
-                    index=0,
-                    delta=OpenAIChatStreamDelta(
-                        role=role,
-                        content=content if content else None,
-                    ),
-                    finish_reason=finish,
-                )
-            ],
-        )
+    route = await _route_decision(query, session_id, use_agent_mode)
+    renderer = StreamingRenderer(request_id, model, created_at)
 
-    yield f"data: {make_chunk('', role='assistant').model_dump_json()}\n\n"
-
-    try:
-        answer, citations = await _process_query(query, session_id, use_agent_mode, think=think)
-    except Exception:
-        error_msg = "Sorry, I encountered an error. Please try again."
-        yield f"data: {make_chunk(error_msg).model_dump_json()}\n\n"
-        yield f"data: {make_chunk('', finish='stop').model_dump_json()}\n\n"
-        yield "data: [DONE]\n\n"
-        return
-
-    words = answer.split()
-    for i in range(0, len(words), 4):  # 4 words at a time
-        chunk_text = " ".join(words[i : i + 4])
-        if i > 0:
-            chunk_text = " " + chunk_text
-
-        yield f"data: {make_chunk(chunk_text).model_dump_json()}\n\n"
-        await asyncio.sleep(0.02)
-
-    yield f"data: {make_chunk('', finish='stop').model_dump_json()}\n\n"
-
-    if citations:
-        citations_data = [c.model_dump(mode="json") for c in citations]
-        yield f"data: {json.dumps({'citations': citations_data})}\n\n"
-
-    yield "data: [DONE]\n\n"
+    async for chunk in renderer.stream_response(route, query):
+        yield chunk
 
 
 @router.post("/v1/chat/completions")
 async def chat_completions(
     request: OpenAIChatRequest,
+    response: Response,
     x_session_id: str | None = Header(None, alias="X-Session-Id"),
     x_agent_mode: str | None = Header(None, alias="X-Agent-Mode"),
 ):
@@ -419,33 +242,89 @@ async def chat_completions(
 
     query = user_messages[-1].content
     session_id = _get_session_id(request.messages, x_session_id)
-    model = request.model or settings.MODEL_ID
-    think = model != settings.MODEL_ID_FAST
+    if not x_session_id:
+        logger.warning(
+            "X-Session-Id missing; generated a new session id for this request",
+            session_id=session_id,
+        )
+    # request.model is the logical name (e.g. "agentic-rag") shown in OpenWebUI;
+    # always use settings.LLM_MODEL for actual Ollama calls.
+    display_model = request.model or settings.LLM_MODEL
+    model = settings.LLM_MODEL
+    request_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
+    created_at = int(time.time())
+    should_stream = bool(request.stream) or settings.FORCE_STREAMING
 
+    # Handle follow-up questions request from Open WebUI
+    query_lower = query.strip().lower()
+    if query_lower.startswith("### task:") and "follow-up" in query_lower:
+        followup_json = await _generate_followup_questions(request.messages)
+        if should_stream:
+            from agentic_rag.backend.api.v1.streaming import StreamingRenderer
+
+            route = RouteDecision(
+                kind="internal",
+                session_id=session_id,
+                internal_response=followup_json,
+            )
+            renderer = StreamingRenderer(request_id, display_model, created_at)
+            return StreamingResponse(
+                renderer.stream_response(route, query),
+                headers={"X-Session-Id": session_id},
+                media_type="text/event-stream",
+            )
+        return OpenAIChatResponse(
+            id=request_id,
+            created=created_at,
+            model=display_model,
+            choices=[
+                OpenAIChatChoice(
+                    index=0,
+                    message=OpenAIChatMessage(
+                        role="assistant",
+                        content=followup_json,
+                    ),
+                    finish_reason="stop",
+                )
+            ],
+            usage=TokenUsage(
+                prompt_tokens=0,
+                completion_tokens=0,
+                total_tokens=0,
+            ),
+        )
     use_agent_mode = _should_use_agent_mode(query, x_agent_mode)
 
     logger.info(
         "Chat request received",
         model=model,
-        stream=request.stream,
+        stream=should_stream,
         session_id=session_id,
         agent_mode=use_agent_mode,
-        think=think,
     )
 
-    request_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
-    created_at = int(time.time())
-
-    if request.stream:
+    if should_stream:
         return StreamingResponse(
             _stream_with_thinking(
-                request_id, model, query, session_id, use_agent_mode, created_at, think=think
+                request_id,
+                display_model,
+                query,
+                session_id,
+                use_agent_mode,
+                created_at,
             ),
+            headers={"X-Session-Id": session_id},
             media_type="text/event-stream",
         )
+    response.headers["X-Session-Id"] = session_id
 
     try:
-        answer, citations = await _process_query(query, session_id, use_agent_mode, think=think)
+        answer, citations, usage = await _process_query(
+            query,
+            session_id,
+            use_agent_mode,
+            model=model,
+        )
     except HTTPException:
         raise
     except Exception:
@@ -455,7 +334,7 @@ async def chat_completions(
     return OpenAIChatResponse(
         id=request_id,
         created=created_at,
-        model=model,
+        model=display_model,
         choices=[
             OpenAIChatChoice(
                 index=0,
@@ -464,9 +343,9 @@ async def chat_completions(
             )
         ],
         usage=TokenUsage(
-            prompt_tokens=len(query.split()),
-            completion_tokens=len(answer.split()),
-            total_tokens=len(query.split()) + len(answer.split()),
+            prompt_tokens=usage["prompt_tokens"],
+            completion_tokens=usage["completion_tokens"],
+            total_tokens=usage["total_tokens"],
         ),
         citations=citations,
     )

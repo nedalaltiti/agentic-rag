@@ -1,0 +1,15 @@
+services:
+  backend:
+    environment:
+      OLLAMA_BASE_URL: http://host.docker.internal:11434
+    depends_on:
+      postgres:
+        condition: service_healthy
+      phoenix:
+        condition: service_healthy
+
+  ollama:
+    profiles: ["disabled"]
+
+  ollama-init:
+    profiles: ["disabled"]

@@ -15,8 +15,9 @@ from typing import Any
 import structlog
 from sqlalchemy import text
 
-from agentic_rag.shared.database import AsyncSessionLocal
-from agentic_rag.shared.llm_factory import get_llm
+from agentic_rag.core.database import AsyncSessionLocal
+from agentic_rag.core.llm_factory import get_llm
+from agentic_rag.core.prompts import PromptRegistry
 
 logger = structlog.get_logger()
 
@@ -30,23 +31,6 @@ class TestSample:
     file_name: str
     section_path: str | None
     context: str
-
-
-_QA_PROMPT = """You are generating evaluation data for a RAG system.
-
-Given this context snippet from a document, write:
-1) A specific question that can be answered ONLY from this snippet.
-2) A short ground-truth answer (1-3 sentences) strictly grounded in the snippet.
-
-Return ONLY valid JSON with keys:
-- question
-- ground_truth
-
-Context snippet:
----
-{context}
----
-"""
 
 
 def _safe_json_loads(text_str: str) -> dict[str, Any] | None:
@@ -109,7 +93,7 @@ async def generate_synthetic_testset(
             continue
 
         context = context[:max_context_chars]
-        prompt = _QA_PROMPT.format(context=context)
+        prompt = PromptRegistry.render("qa_generation_template", context=context)
 
         try:
             resp = await llm.acomplete(prompt)
