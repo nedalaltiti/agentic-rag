@@ -45,6 +45,18 @@ On first launch the `ollama-init` service automatically pulls the models
 defined in `.env` (`LLM_MODEL` and `EMBEDDING_MODEL`), and the backend
 applies SQL migrations on startup — no manual steps required.
 
+### Index the sample documents
+
+The repo includes PDPL (Personal Data Protection Law) documents in `data/sample/`.
+To index them so the chatbot can answer questions:
+
+```bash
+docker compose exec backend agentic-index --source data/sample/
+```
+
+Then open **http://localhost:3000** (OpenWebUI) and ask questions like
+*"What is PDPL?"* or *"What are the rules for transferring personal data outside the Kingdom?"*
+
 > **Mac with host Ollama (Metal GPU):** Use the compose override to skip the
 > containerised Ollama and its init job:
 > ```bash
