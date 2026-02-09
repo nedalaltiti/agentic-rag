@@ -22,8 +22,10 @@ logger = structlog.get_logger()
 # Fixed advisory-lock key (arbitrary 64-bit int, never changes).
 _LOCK_KEY = 8_675_309
 
-# Default location relative to the package (Docker copies migrations here).
-_DEFAULT_DIR = pathlib.Path(__file__).resolve().parents[3] / "migrations"
+# Default: try CWD/migrations first (Docker /app/migrations), then fall back
+# to the source-tree relative path (local dev with editable install).
+_DEFAULT_DIR = pathlib.Path("migrations")
+_SOURCE_DIR = pathlib.Path(__file__).resolve().parents[3] / "migrations"
 
 
 def _asyncpg_dsn() -> str:
@@ -36,7 +38,8 @@ def _asyncpg_dsn() -> str:
 
 async def run_migrations(migrations_dir: pathlib.Path | None = None) -> None:
     """Apply pending SQL migrations inside an advisory lock."""
-    migrations_dir = migrations_dir or _DEFAULT_DIR
+    if migrations_dir is None:
+        migrations_dir = _DEFAULT_DIR if _DEFAULT_DIR.is_dir() else _SOURCE_DIR
     if not migrations_dir.is_dir():
         logger.warning("migrations directory not found, skipping", path=str(migrations_dir))
         return
@@ -61,8 +64,7 @@ async def run_migrations(migrations_dir: pathlib.Path | None = None) -> None:
         """)
 
         applied: set[str] = {
-            row["filename"]
-            for row in await conn.fetch("SELECT filename FROM _applied_migrations")
+            row["filename"] for row in await conn.fetch("SELECT filename FROM _applied_migrations")
         }
 
         for path in sql_files:

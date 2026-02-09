@@ -82,6 +82,7 @@ def _sanitize_query(query: str) -> str:
     """
     return _INJECTION_RE.sub("", query).strip()
 
+
 SCOPE_REFUSAL = (
     f"I specialize in {settings.DOMAIN_TOPICS} only. "
     "I'm not able to help with that question. "
@@ -291,7 +292,10 @@ def _get_user_prompt(query: str, context: str, history: str) -> str:
     if cached is not None:
         return cached
     prompt = PromptRegistry.render(
-        "user_prompt", query=safe_query, context=context, history=history,
+        "user_prompt",
+        query=safe_query,
+        context=context,
+        history=history,
     )
     _cache_set(_PROMPT_CACHE, cache_key, prompt, max_size)
     return prompt

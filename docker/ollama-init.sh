@@ -1,12 +1,12 @@
 #!/usr/bin/env sh
 set -e
 
-OLLAMA_URL="http://ollama:11434"
+export OLLAMA_HOST="http://ollama:11434"
 MAX_RETRIES=30
 RETRY_INTERVAL=2
 
 attempt=0
-until curl -sf "${OLLAMA_URL}/api/tags" > /dev/null; do
+until ollama list > /dev/null 2>&1; do
   attempt=$((attempt + 1))
   if [ "$attempt" -ge "$MAX_RETRIES" ]; then
     echo "ERROR: Ollama not reachable after ${MAX_RETRIES} attempts" >&2

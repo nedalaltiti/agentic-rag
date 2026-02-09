@@ -24,9 +24,7 @@ class Settings(BaseSettings):
     DOMAIN_FULL_NAME: str = "Personal Data Protection Law"
     DOMAIN_REGION: str = "Saudi Arabia"
     DOMAIN_TOPICS: str = "PDPL, privacy, and data protection"
-    DOMAIN_CLOSING: str = (
-        "Is there anything else I can help you with regarding PDPL compliance?"
-    )
+    DOMAIN_CLOSING: str = "Is there anything else I can help you with regarding PDPL compliance?"
 
     # API Config
     API_HOST: str = "0.0.0.0"

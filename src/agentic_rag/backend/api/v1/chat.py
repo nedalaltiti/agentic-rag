@@ -297,7 +297,12 @@ async def chat_completions(
     if should_stream:
         return StreamingResponse(
             _stream_with_thinking(
-                request_id, display_model, query, session_id, use_agent_mode, created_at,
+                request_id,
+                display_model,
+                query,
+                session_id,
+                use_agent_mode,
+                created_at,
             ),
             headers={"X-Session-Id": session_id},
             media_type="text/event-stream",
