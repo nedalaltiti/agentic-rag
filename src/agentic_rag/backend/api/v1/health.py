@@ -6,7 +6,7 @@ Provides OpenWebUI-compatible health status and model discovery.
 import time
 
 import structlog
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 
 from agentic_rag.core.config import settings
 from agentic_rag.core.health import check_all_services, get_overall_status
@@ -18,12 +18,20 @@ router = APIRouter(tags=["health"])
 
 
 @router.get("/health")
-async def health_check() -> dict:
+async def health_check(request: Request) -> dict:
     """
     Health check endpoint.
 
     Returns service status for all dependencies.
+    Returns unhealthy until migrations and startup are complete.
     """
+    if not getattr(request.app.state, "ready", False):
+        return {
+            "status": "unhealthy",
+            "detail": "starting up",
+            "timestamp": int(time.time()),
+        }
+
     services = await check_all_services()
     overall = get_overall_status(services)
 

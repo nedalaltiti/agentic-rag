@@ -62,12 +62,31 @@ def _hash_parts(*parts: str) -> str:
     return digest.hexdigest()
 
 
-CLOSING_LINE = "\n\nIs there anything else I can help you with regarding PDPL compliance?"
+CLOSING_LINE = f"\n\n{settings.DOMAIN_CLOSING}"
+
+# Patterns that attempt to inject fake prompt sections or override instructions.
+_INJECTION_RE = re.compile(
+    r"(===\s*(INSTRUCTIONS|CONTEXT|SYSTEM|QUESTION|RULES|HISTORY)\s*===)"
+    r"|(\bignore\s+(all\s+)?(previous|above|prior)\s+(instructions|rules|prompts)\b)"
+    r"|(\byou\s+are\s+now\b)"
+    r"|(\bsystem\s*:\s)",
+    re.IGNORECASE,
+)
+
+
+def _sanitize_query(query: str) -> str:
+    """Neutralise common prompt-injection patterns in user input.
+
+    Strips delimiter fences and meta-instructions that try to escape the
+    user-input boundary.  The original question intent is preserved.
+    """
+    return _INJECTION_RE.sub("", query).strip()
 
 SCOPE_REFUSAL = (
-    "I specialize in PDPL and data protection topics only. "
+    f"I specialize in {settings.DOMAIN_TOPICS} only. "
     "I'm not able to help with that question. "
-    "Feel free to ask me anything about Saudi Arabia's Personal Data Protection Law!"
+    f"Feel free to ask me anything about {settings.DOMAIN_REGION}'s "
+    f"{settings.DOMAIN_FULL_NAME}!"
 )
 
 
@@ -137,7 +156,8 @@ async def _conversational_response(query: str, model: str | None = None) -> str:
     """Quick LLM response for greetings/thanks."""
     system_prompt = PromptRegistry.render("conversational_prompt")
     fallback = (
-        "Welcome! I'm here to help with Saudi Arabia's Personal Data Protection Law (PDPL). "
+        f"Welcome! I'm here to help with {settings.DOMAIN_REGION}'s "
+        f"{settings.DOMAIN_FULL_NAME} ({settings.DOMAIN_NAME}). "
         "What would you like to know?"
     )
 
@@ -173,7 +193,7 @@ def _is_openwebui_internal_request(query: str) -> tuple[bool, str]:
 def _format_context_for_llm(citations: list[Citation]) -> str:
     """Format citations as context for the LLM prompt."""
     if not citations:
-        return "No relevant PDPL information found."
+        return "No relevant information found in the knowledge base."
 
     ttl = settings.PROMPT_CACHE_TTL_SECONDS
     max_size = settings.PROMPT_CACHE_MAX
@@ -263,13 +283,16 @@ def _get_system_prompt() -> str:
 
 
 def _get_user_prompt(query: str, context: str, history: str) -> str:
+    safe_query = _sanitize_query(query)
     ttl = settings.PROMPT_CACHE_TTL_SECONDS
     max_size = settings.PROMPT_CACHE_MAX
-    cache_key = _hash_parts("user_prompt", query, context, history)
+    cache_key = _hash_parts("user_prompt", safe_query, context, history)
     cached = _cache_get(_PROMPT_CACHE, cache_key, ttl)
     if cached is not None:
         return cached
-    prompt = PromptRegistry.render("user_prompt", query=query, context=context, history=history)
+    prompt = PromptRegistry.render(
+        "user_prompt", query=safe_query, context=context, history=history,
+    )
     _cache_set(_PROMPT_CACHE, cache_key, prompt, max_size)
     return prompt
 
@@ -345,7 +368,7 @@ async def _fast_rag_response(
 ) -> str:
     """Single LLM call with retrieved context (default path)."""
     if not citations:
-        return "No relevant PDPL information found."
+        return "No relevant information found in the knowledge base."
 
     if system_prompt is None or user_prompt is None:
         context = _format_context_for_llm(citations)
@@ -404,7 +427,7 @@ async def _agent_mode_response(
                 logger.exception("LLM generation failed; using fallback response")
                 fallback_answer = _fallback_rag_answer(fallback_citations)
             return fallback_answer, fallback_citations
-        return "No relevant PDPL information found.", []
+        return "No relevant information found in the knowledge base.", []
 
     return answer, tool_citations
 

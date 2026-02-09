@@ -41,10 +41,22 @@ docker compose up -d
 curl http://localhost:8000/health
 ```
 
-Optional: pull Ollama models defined in `.env`:
-```bash
-bash scripts/pull_models.sh
-```
+On first launch the `ollama-init` service automatically pulls the models
+defined in `.env` (`LLM_MODEL` and `EMBEDDING_MODEL`), and the backend
+applies SQL migrations on startup — no manual steps required.
+
+> **Mac with host Ollama (Metal GPU):** Use the compose override to skip the
+> containerised Ollama and its init job:
+> ```bash
+> docker compose -f docker-compose.yml -f docker-compose.mac.yml up -d
+> ```
+> You must pull the models yourself: `ollama pull qwen3:1.7b && ollama pull qwen3-embedding:0.6b`
+
+> **Full reset:** To wipe all data and start fresh:
+> ```bash
+> docker compose down -v          # removes containers + volumes
+> docker compose up -d            # recreates everything
+> ```
 
 > **Local Development (outside Docker):** The `.env.example` uses Docker service names
 > (`postgres`, `ollama`, `phoenix`). If running locally without Docker, update these to
@@ -238,7 +250,7 @@ The agent's text response typically includes inline citations.
 
 * PDFs with complex tables/scans depend heavily on Docling parsing quality.
 * Retrieval quality depends on chunking + embedding model choice.
-* If Ollama doesn’t have the models pulled yet, first run will be slow.
+* First launch may take several minutes while Ollama models are downloaded.
 
 ## Troubleshooting
 

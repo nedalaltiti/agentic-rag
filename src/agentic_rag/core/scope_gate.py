@@ -51,7 +51,7 @@ class ScopeGate:
 
     @classmethod
     async def is_in_scope(cls, query: str) -> tuple[bool, float]:
-        """Check if query is semantically within PDPL/data-protection scope.
+        """Check if query is semantically within the configured domain scope.
 
         Returns (in_scope, max_similarity).
         """

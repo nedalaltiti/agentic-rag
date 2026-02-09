@@ -63,7 +63,7 @@ class DatabaseSearchTool(BaseTool):
 
             if not citations:
                 logger.info("DatabaseSearchTool found no citations")
-                return "No relevant PDPL information found."
+                return "No relevant information found in the knowledge base."
 
             logger.info("DatabaseSearchTool citations", count=len(citations))
             result_text = ""

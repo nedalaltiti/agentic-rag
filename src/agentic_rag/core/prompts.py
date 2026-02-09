@@ -44,11 +44,22 @@ class PromptRegistry:
         return [p.stem for p in PROMPTS_DIR.glob("*.j2")]
 
     @classmethod
+    def _domain_vars(cls) -> dict[str, str]:
+        """Return domain config variables injected into every template."""
+        return {
+            "domain_name": settings.DOMAIN_NAME,
+            "domain_full_name": settings.DOMAIN_FULL_NAME,
+            "domain_region": settings.DOMAIN_REGION,
+            "domain_topics": settings.DOMAIN_TOPICS,
+            "domain_closing": settings.DOMAIN_CLOSING,
+        }
+
+    @classmethod
     def render(cls, name: str, **kwargs: Any) -> str:
         """Render a prompt template. In prod, fetches from Phoenix first."""
         template_str = cls.get_template(name)
         template = cls._env.from_string(template_str)
-        return template.render(**kwargs)
+        return template.render(**{**cls._domain_vars(), **kwargs})
 
     @classmethod
     def get_raw_local(cls, name: str) -> str:

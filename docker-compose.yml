@@ -10,7 +10,6 @@ services:
       - "5433:5432"
     volumes:
       - pg_data:/var/lib/postgresql/data
-      - ./migrations:/docker-entrypoint-initdb.d:ro
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres -d ragdb"]
       interval: 5s
@@ -49,6 +48,19 @@ services:
       retries: 20
     restart: unless-stopped
 
+  ollama-init:
+    image: ollama/ollama:latest
+    container_name: ollama-init
+    entrypoint: ["sh", "/init.sh"]
+    volumes:
+      - ./docker/ollama-init.sh:/init.sh:ro
+    environment:
+      LLM_MODEL: ${LLM_MODEL:-qwen3:1.7b}
+      EMBEDDING_MODEL: ${EMBEDDING_MODEL:-qwen3-embedding:0.6b}
+    depends_on:
+      ollama:
+        condition: service_healthy
+
   backend:
     build:
       context: .
@@ -60,7 +72,7 @@ services:
       - ./data:/app/data
     environment:
       DATABASE_URL: postgresql+asyncpg://postgres:postgres@postgres:5432/ragdb
-      OLLAMA_BASE_URL: http://host.docker.internal:11434
+      OLLAMA_BASE_URL: http://ollama:11434
       PHOENIX_COLLECTOR_ENDPOINT: http://phoenix:6006/v1/traces
       PHOENIX_API_URL: http://phoenix:6006
       PHOENIX_PROMPT_SYNC: ${PHOENIX_PROMPT_SYNC:-true}
@@ -74,8 +86,8 @@ services:
     depends_on:
       postgres:
         condition: service_healthy
-      ollama:
-        condition: service_healthy
+      ollama-init:
+        condition: service_completed_successfully
       phoenix:
         condition: service_healthy
     restart: unless-stopped

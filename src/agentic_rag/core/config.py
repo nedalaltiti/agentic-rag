@@ -19,6 +19,15 @@ class Settings(BaseSettings):
     ENVIRONMENT: Literal["dev", "prod"] = "dev"
     LOG_LEVEL: str = "INFO"
 
+    # Domain configuration
+    DOMAIN_NAME: str = "PDPL"
+    DOMAIN_FULL_NAME: str = "Personal Data Protection Law"
+    DOMAIN_REGION: str = "Saudi Arabia"
+    DOMAIN_TOPICS: str = "PDPL, privacy, and data protection"
+    DOMAIN_CLOSING: str = (
+        "Is there anything else I can help you with regarding PDPL compliance?"
+    )
+
     # API Config
     API_HOST: str = "0.0.0.0"
     API_PORT: int = 8000

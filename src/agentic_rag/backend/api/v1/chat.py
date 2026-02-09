@@ -86,20 +86,19 @@ async def _generate_followup_questions(
             last_assistant = msg.content[:1000]
             break
 
+    domain = settings.DOMAIN_NAME
+    default_questions = [
+        f"What are the key obligations under {domain}?",
+        f"How does {domain} handle cross-border data transfers?",
+        f"What are the penalties for non-compliance with {domain}?",
+    ]
+
     if not last_assistant:
-        return json.dumps(
-            {
-                "questions": [
-                    "What are the key obligations under PDPL?",
-                    "How does PDPL handle cross-border data transfers?",
-                    "What are the penalties for non-compliance?",
-                ]
-            }
-        )
+        return json.dumps({"questions": default_questions})
 
     prompt = (
         "Based on this assistant response, generate exactly 3 short follow-up "
-        "questions the user might ask next about PDPL. Return ONLY a JSON object "
+        f"questions the user might ask next about {domain}. Return ONLY a JSON object "
         'in this format: {"questions": ["q1", "q2", "q3"]}\n\n'
         f"Assistant response:\n{last_assistant}"
     )
@@ -117,15 +116,7 @@ async def _generate_followup_questions(
     except Exception:
         logger.debug("Follow-up generation failed, using defaults")
 
-    return json.dumps(
-        {
-            "questions": [
-                "What are the key obligations under PDPL?",
-                "How does PDPL handle cross-border data transfers?",
-                "What are the penalties for non-compliance?",
-            ]
-        }
-    )
+    return json.dumps({"questions": default_questions})
 
 
 async def _process_query(
@@ -247,7 +238,10 @@ async def chat_completions(
             "X-Session-Id missing; generated a new session id for this request",
             session_id=session_id,
         )
-    model = request.model or settings.LLM_MODEL
+    # request.model is the logical name (e.g. "agentic-rag") shown in OpenWebUI;
+    # always use settings.LLM_MODEL for actual Ollama calls.
+    display_model = request.model or settings.LLM_MODEL
+    model = settings.LLM_MODEL
     request_id = f"chatcmpl-{uuid.uuid4().hex[:8]}"
     created_at = int(time.time())
     should_stream = bool(request.stream) or settings.FORCE_STREAMING
@@ -264,7 +258,7 @@ async def chat_completions(
                 session_id=session_id,
                 internal_response=followup_json,
             )
-            renderer = StreamingRenderer(request_id, model, created_at)
+            renderer = StreamingRenderer(request_id, display_model, created_at)
             return StreamingResponse(
                 renderer.stream_response(route, query),
                 headers={"X-Session-Id": session_id},
@@ -273,7 +267,7 @@ async def chat_completions(
         return OpenAIChatResponse(
             id=request_id,
             created=created_at,
-            model=model,
+            model=display_model,
             choices=[
                 OpenAIChatChoice(
                     index=0,
@@ -302,7 +296,9 @@ async def chat_completions(
 
     if should_stream:
         return StreamingResponse(
-            _stream_with_thinking(request_id, model, query, session_id, use_agent_mode, created_at),
+            _stream_with_thinking(
+                request_id, display_model, query, session_id, use_agent_mode, created_at,
+            ),
             headers={"X-Session-Id": session_id},
             media_type="text/event-stream",
         )
@@ -324,7 +320,7 @@ async def chat_completions(
     return OpenAIChatResponse(
         id=request_id,
         created=created_at,
-        model=model,
+        model=display_model,
         choices=[
             OpenAIChatChoice(
                 index=0,

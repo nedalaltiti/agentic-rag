@@ -9,6 +9,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from agentic_rag.backend.api.v1 import chat, health
 from agentic_rag.core.config import settings
 from agentic_rag.core.logging import setup_logging
+from agentic_rag.core.migrator import run_migrations
 from agentic_rag.core.observability import setup_observability
 from agentic_rag.core.prompts import PromptRegistry
 
@@ -19,7 +20,11 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging()
     setup_observability(app)
 
+    await run_migrations()
+
     PromptRegistry.sync_to_phoenix(version_tag=settings.APP_VERSION)
+
+    app.state.ready = True
 
     yield
 

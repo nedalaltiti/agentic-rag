@@ -30,7 +30,7 @@ class TestDatabaseSearchTool:
         tool = DatabaseSearchTool()
         tool._retriever = mock_instance
         result = tool._run("some query")
-        assert result == "No relevant PDPL information found."
+        assert result == "No relevant information found in the knowledge base."
 
     @patch("agentic_rag.backend.crew.tools.format_citations")
     @patch("agentic_rag.backend.crew.tools.HybridRetriever")

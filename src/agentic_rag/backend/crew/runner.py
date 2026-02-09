@@ -1,13 +1,24 @@
 """CrewAI pipeline orchestration for query processing."""
 
+import re
+
 import structlog
 from crewai import Crew, Process, Task
 
+from agentic_rag.core.config import settings
 from agentic_rag.core.prompts import PromptRegistry
 from agentic_rag.core.schemas import Citation
 
 from .agents import create_researcher_agent, create_writer_agent
 from .tools import DatabaseSearchTool, MemoryLookupTool
+
+_INJECTION_RE = re.compile(
+    r"(===\s*(INSTRUCTIONS|CONTEXT|SYSTEM|QUESTION|RULES|HISTORY)\s*===)"
+    r"|(\bignore\s+(all\s+)?(previous|above|prior)\s+(instructions|rules|prompts)\b)"
+    r"|(\byou\s+are\s+now\b)"
+    r"|(\bsystem\s*:\s)",
+    re.IGNORECASE,
+)
 
 logger = structlog.get_logger()
 
@@ -44,7 +55,7 @@ class CrewRunner:
         write_task = Task(
             description=user_prompt,
             expected_output=(
-                "A well-formatted PDPL compliance response "
+                f"A well-formatted {settings.DOMAIN_NAME} compliance response "
                 "with inline citations and References section."
             ),
             agent=self.writer,
@@ -63,10 +74,11 @@ class CrewRunner:
     def kickoff(self, query: str) -> tuple[str, list[Citation]]:
         """Run the full CrewAI pipeline with tool usage."""
         logger.info("Kickstarting Crew (full pipeline)", session_id=self.session_id)
+        safe_query = _INJECTION_RE.sub("", query).strip()
 
         research_task = Task(
             description=(
-                f"User query: '{query}'\n\n"
+                f"User query: '{safe_query}'\n\n"
                 "INSTRUCTIONS (YOU MUST FOLLOW):\n"
                 "1. You MUST call DatabaseSearchTool at least once for every question.\n"
                 "2. If the user refers to past context, ALSO use MemoryLookupTool.\n"
@@ -75,7 +87,7 @@ class CrewRunner:
                 "4. Include: Source ID, File Name, Section/Article "
                 "(if present), and exact text passage.\n"
                 "5. If DatabaseSearchTool returns no documents, "
-                "explicitly state: 'No relevant PDPL information found.'"
+                "explicitly state: 'No relevant information found in the knowledge base.'"
             ),
             expected_output="Exact passages from the knowledge base with full source metadata.",
             agent=self.researcher,
@@ -84,20 +96,19 @@ class CrewRunner:
         write_task = Task(
             description=(
                 "Using the researcher's findings, write a response following these rules:\n\n"
-                "IF researcher found 'No relevant PDPL information found.':\n"
+                "IF researcher found 'No relevant information found in the knowledge base.':\n"
                 "- Naturally explain it's not in the knowledge base, "
-                "then suggest related PDPL questions.\n\n"
+                f"then suggest related {settings.DOMAIN_NAME} questions.\n\n"
                 "FOR SUBSTANTIVE ANSWERS:\n"
                 "1. Answer using ONLY the provided findings - never invent information.\n"
                 "2. Add inline citations [1], [2] for every factual statement.\n"
                 "3. End with a References section mapping each [n] to its source.\n"
                 "4. Use clear formatting: sections, bullets, **bold** for key terms.\n"
                 "5. NO emojis. Professional tone.\n"
-                "6. End with: 'Is there anything else I can help "
-                "you with regarding PDPL compliance?'"
+                f"6. End with: '{settings.DOMAIN_CLOSING}'"
             ),
             expected_output=(
-                "A well-formatted PDPL compliance response "
+                f"A well-formatted {settings.DOMAIN_NAME} compliance response "
                 "with inline citations and References section."
             ),
             agent=self.writer,

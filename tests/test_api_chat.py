@@ -164,7 +164,7 @@ class TestFormatContextForLLM:
 
     def test_empty(self):
         result = _format_context_for_llm([])
-        assert "No relevant PDPL information found" in result
+        assert "No relevant information found" in result
 
 
 class TestGetSessionId:

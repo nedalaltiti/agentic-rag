@@ -19,6 +19,7 @@ WORKDIR /app
 COPY --from=builder /usr/local /usr/local
 
 COPY src ./src
+COPY migrations ./migrations
 
 ENV PYTHONUNBUFFERED=1
 EXPOSE 8000

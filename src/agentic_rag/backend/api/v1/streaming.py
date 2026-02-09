@@ -18,6 +18,7 @@ from agentic_rag.backend.api.v1.chat_service import (
     _prepare_rag,
 )
 from agentic_rag.backend.rag.semantic_cache import lookup_cache, store_cache
+from agentic_rag.core.config import settings
 from agentic_rag.core.exceptions import DependencyUnavailable, IndexMismatchError
 from agentic_rag.core.llm_factory import ollama_chat_stream
 from agentic_rag.core.prompts import PromptRegistry
@@ -100,8 +101,9 @@ class StreamingRenderer:
             except Exception:
                 if not conv_answer:
                     conv_answer = (
-                        "Welcome! I'm here to help with Saudi Arabia's Personal Data "
-                        "Protection Law (PDPL). What would you like to know?"
+                        f"Welcome! I'm here to help with {settings.DOMAIN_REGION}'s "
+                        f"{settings.DOMAIN_FULL_NAME} ({settings.DOMAIN_NAME}). "
+                        "What would you like to know?"
                     )
                     yield self._sse(conv_answer)
             await memory.add_message("assistant", conv_answer)
